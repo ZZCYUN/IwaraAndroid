@@ -12,6 +12,7 @@
         android:theme="@style/Theme.IwaraClient">
         <activity
             android:name=".MainActivity"
+            android:configChanges="keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
             android:theme="@style/Theme.IwaraClient">
             <intent-filter>

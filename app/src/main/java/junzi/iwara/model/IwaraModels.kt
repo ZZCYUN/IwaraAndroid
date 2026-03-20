@@ -23,6 +23,7 @@ enum class AppRoute {
     Search,
     Profile,
     Player,
+    Playlist,
 }
 
 data class IwaraUser(
@@ -59,6 +60,15 @@ data class ImageSummary(
     val authorUsername: String,
     val views: Int,
     val likes: Int,
+    val thumbnailUrl: String?,
+)
+
+data class PlaylistSummary(
+    val id: String,
+    val title: String,
+    val authorName: String,
+    val authorUsername: String,
+    val numVideos: Int,
     val thumbnailUrl: String?,
 )
 
@@ -106,6 +116,16 @@ data class ProfileDetail(
     val followers: List<IwaraUser>,
     val following: List<IwaraUser>,
     val comments: List<CommentItem>,
+    val isOwnProfile: Boolean = false,
+    val playlists: List<PlaylistSummary> = emptyList(),
+)
+
+data class PlaylistDetail(
+    val playlist: PlaylistSummary,
+    val videos: List<VideoSummary>,
+    val page: Int,
+    val count: Int,
+    val limit: Int,
 )
 
 data class FeedUiState(
@@ -145,6 +165,12 @@ data class ProfileUiState(
     val error: String? = null,
 )
 
+data class PlaylistUiState(
+    val loading: Boolean = false,
+    val detail: PlaylistDetail? = null,
+    val error: String? = null,
+)
+
 data class AppUiState(
     val bootstrapping: Boolean = true,
     val route: AppRoute = AppRoute.Login,
@@ -155,5 +181,6 @@ data class AppUiState(
     val search: SearchUiState = SearchUiState(),
     val profile: ProfileUiState = ProfileUiState(),
     val player: PlayerUiState = PlayerUiState(),
+    val playlist: PlaylistUiState = PlaylistUiState(),
 )
 

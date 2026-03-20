@@ -1,6 +1,7 @@
 ﻿package junzi.iwara.ui
 
 import android.graphics.BitmapFactory
+import java.net.HttpURLConnection
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -38,7 +39,15 @@ fun AsyncRemoteImage(
         loading = true
         bitmapState = withContext(Dispatchers.IO) {
             runCatching {
-                URL(url).openStream().use(BitmapFactory::decodeStream)
+                val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 20_000
+                    readTimeout = 20_000
+                    setRequestProperty("User-Agent", USER_AGENT)
+                    setRequestProperty("Referer", REFERER)
+                }
+                connection.inputStream.use(BitmapFactory::decodeStream).also {
+                    connection.disconnect()
+                }
             }.getOrNull()
         }
         loading = false
@@ -61,3 +70,7 @@ fun AsyncRemoteImage(
     }
 }
 
+
+
+private const val USER_AGENT = "Mozilla/5.0 (Android) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+private const val REFERER = "https://www.iwara.tv/"

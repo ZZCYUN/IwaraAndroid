@@ -48,6 +48,8 @@ fun FeedScreen(
     state: AppUiState,
     controller: IwaraAppController,
 ) {
+    var playlistTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -136,8 +138,12 @@ fun FeedScreen(
                         video = video,
                         onOpen = { controller.openVideo(video.id) },
                         onOpenProfile = { controller.openProfile(video.authorUsername) },
+                        onAddToPlaylist = { playlistTargetId = video.id },
                     )
                 }
+            }
+            state.feed.videos.firstOrNull { it.id == playlistTargetId }?.let { video ->
+                PlaylistPickerDialog(video = video, controller = controller, onDismiss = { playlistTargetId = null })
             }
         }
     }
@@ -151,6 +157,7 @@ fun SearchScreen(
 ) {
     BackHandler { controller.loadFeed(state.feed.sort, state.feed.selectedTag) }
     var query by rememberSaveable(state.search.query) { mutableStateOf(state.search.query) }
+    var searchPlaylistTargetId by rememberSaveable { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -213,6 +220,7 @@ fun SearchScreen(
                             video = video,
                             onOpen = { controller.openVideo(video.id) },
                             onOpenProfile = { controller.openProfile(video.authorUsername) },
+                            onAddToPlaylist = { searchPlaylistTargetId = video.id },
                         )
                     }
                 }
@@ -222,6 +230,9 @@ fun SearchScreen(
                         UserRow(user = user, onOpen = { controller.openProfile(user.username) })
                     }
                 }
+            }
+            state.search.videoResults.firstOrNull { it.id == searchPlaylistTargetId }?.let { video ->
+                PlaylistPickerDialog(video = video, controller = controller, onDismiss = { searchPlaylistTargetId = null })
             }
         }
     }

@@ -63,6 +63,7 @@ fun IwaraApp(controller: IwaraAppController) {
                 state.route == AppRoute.Search -> SearchScreen(state, controller)
                 state.route == AppRoute.Profile -> ProfileScreen(state, controller)
                 state.route == AppRoute.Player -> PlayerScreen(state, controller)
+                state.route == AppRoute.Playlist -> PlaylistScreen(state, controller)
             }
         }
     }

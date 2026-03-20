@@ -71,6 +71,39 @@ class IwaraApi {
         return response.optJSONArray("results") ?: JSONArray()
     }
 
+    fun fetchPlaylists(
+        params: Map<String, String>,
+        bearerToken: String? = null,
+    ): JSONObject =
+        requestJsonObject(
+            method = "GET",
+            url = apiUrl(buildPath("/playlists", params)),
+            bearerToken = bearerToken,
+        )
+
+    fun fetchPlaylist(
+        id: String,
+        params: Map<String, String> = emptyMap(),
+        bearerToken: String? = null,
+    ): JSONObject =
+        requestJsonObject(
+            method = "GET",
+            url = apiUrl(buildPath("/playlist/$id", params)),
+            bearerToken = bearerToken,
+        )
+
+    fun fetchUserContent(
+        userId: String,
+        type: String,
+        params: Map<String, String>,
+        bearerToken: String,
+    ): JSONObject =
+        requestJsonObject(
+            method = "GET",
+            url = apiUrl(buildPath("/user/$userId/content/$type", params)),
+            bearerToken = bearerToken,
+        )
+
     fun fetchSearchResults(
         query: String,
         type: String,
@@ -134,6 +167,40 @@ class IwaraApi {
             method = "POST",
             url = apiUrl("/$targetType/$targetId/comments"),
             body = payload.toString(),
+            bearerToken = bearerToken,
+        )
+    }
+
+    fun createPlaylist(
+        title: String,
+        bearerToken: String,
+    ): JSONObject =
+        requestJsonObject(
+            method = "POST",
+            url = apiUrl("/playlists"),
+            body = JSONObject().put("title", title).toString(),
+            bearerToken = bearerToken,
+        )
+
+    fun addToPlaylist(
+        playlistId: String,
+        videoId: String,
+        bearerToken: String,
+    ) {
+        request(
+            method = "POST",
+            url = apiUrl("/playlist/$playlistId/$videoId"),
+            bearerToken = bearerToken,
+        )
+    }
+
+    fun deletePlaylist(
+        playlistId: String,
+        bearerToken: String,
+    ) {
+        request(
+            method = "DELETE",
+            url = apiUrl("/playlist/$playlistId"),
             bearerToken = bearerToken,
         )
     }

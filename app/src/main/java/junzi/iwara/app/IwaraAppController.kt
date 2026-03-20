@@ -10,6 +10,7 @@ import junzi.iwara.model.AppUiState
 import junzi.iwara.model.CommentTargetType
 import junzi.iwara.model.FeedSort
 import junzi.iwara.model.PlayerUiState
+import junzi.iwara.model.PlaylistUiState
 import junzi.iwara.model.ProfileUiState
 import junzi.iwara.model.SearchType
 import kotlinx.coroutines.CoroutineScope
@@ -282,6 +283,93 @@ class IwaraAppController(context: Context) {
         openProfile(username)
     }
 
+    fun loadOwnPlaylists(onResult: (List<junzi.iwara.model.PlaylistSummary>, String?) -> Unit) {
+        val session = _state.value.session ?: return onResult(emptyList(), appContext.getString(R.string.error_login_failed))
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { repository.fetchOwnPlaylists(session) }
+            }
+            result.onSuccess { onResult(it, null) }
+                .onFailure { onResult(emptyList(), it.message ?: appContext.getString(R.string.error_load_profile)) }
+        }
+    }
+
+    fun createPlaylist(title: String, onResult: (junzi.iwara.model.PlaylistSummary?, String?) -> Unit) {
+        val session = _state.value.session ?: return onResult(null, appContext.getString(R.string.error_login_failed))
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { repository.createPlaylist(title, session) }
+            }
+            result.onSuccess {
+                refreshOwnProfileIfVisible()
+                onResult(it, null)
+            }.onFailure {
+                onResult(null, it.message ?: appContext.getString(R.string.error_load_profile))
+            }
+        }
+    }
+
+    fun addVideoToPlaylist(playlistId: String, videoId: String, onResult: (String?) -> Unit) {
+        val session = _state.value.session ?: return onResult(appContext.getString(R.string.error_login_failed))
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { repository.addVideoToPlaylist(playlistId, videoId, session) }
+            }
+            result.onSuccess {
+                onResult(null)
+            }.onFailure {
+                onResult(it.message ?: appContext.getString(R.string.error_load_profile))
+            }
+        }
+    }
+
+    fun deletePlaylist(playlistId: String, onResult: (String?) -> Unit) {
+        val session = _state.value.session ?: return onResult(appContext.getString(R.string.error_login_failed))
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { repository.deletePlaylist(playlistId, session) }
+            }
+            result.onSuccess {
+                refreshOwnProfileIfVisible()
+                onResult(null)
+            }.onFailure {
+                onResult(it.message ?: appContext.getString(R.string.error_load_profile))
+            }
+        }
+    }
+
+    fun openPlaylist(playlistId: String) {
+        scope.launch {
+            _state.update {
+                it.copy(
+                    route = AppRoute.Playlist,
+                    playlist = PlaylistUiState(loading = true),
+                )
+            }
+            val result = withContext(Dispatchers.IO) {
+                runCatching { repository.fetchPlaylistDetail(playlistId, _state.value.session) }
+            }
+            result.onSuccess { detail ->
+                _state.update {
+                    it.copy(
+                        route = AppRoute.Playlist,
+                        playlist = PlaylistUiState(loading = false, detail = detail),
+                    )
+                }
+            }.onFailure { throwable ->
+                _state.update {
+                    it.copy(
+                        route = AppRoute.Playlist,
+                        playlist = PlaylistUiState(
+                            loading = false,
+                            error = throwable.message ?: appContext.getString(R.string.error_load_profile),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
     fun openVideo(videoId: String) {
         scope.launch {
             _state.update {
@@ -415,6 +503,21 @@ class IwaraAppController(context: Context) {
 
     fun closePlayer() {
         _state.update { it.copy(route = AppRoute.Feed, player = PlayerUiState()) }
+    }
+
+    private fun refreshOwnProfileIfVisible() {
+        val session = _state.value.session ?: return
+        val profile = _state.value.profile.detail ?: return
+        if (profile.user.username == session.user.username) {
+            openOwnProfile()
+        }
+    }
+
+    fun closePlaylist() {
+        _state.update {
+            val targetRoute = if (it.profile.detail != null) AppRoute.Profile else AppRoute.Feed
+            it.copy(route = targetRoute, playlist = PlaylistUiState())
+        }
     }
 
     fun selectVariant(name: String) {

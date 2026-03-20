@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,8 +16,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -23,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import junzi.iwara.model.CommentItem
 import junzi.iwara.model.ImageSummary
+import junzi.iwara.model.PlaylistSummary
 import junzi.iwara.model.IwaraUser
 import junzi.iwara.model.VideoSummary
 import junzi.iwara.ui.AsyncRemoteImage
@@ -76,17 +83,23 @@ fun AvatarImage(
 }
 
 @Composable
+private fun SingleLineChipText(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 fun VideoRow(
     video: VideoSummary,
     onOpen: () -> Unit,
     onOpenProfile: () -> Unit,
+    onAddToPlaylist: (() -> Unit)? = null,
 ) {
-    val ratingLabel = when (video.rating.lowercase()) {
-        "general" -> stringResource(R.string.rating_general)
-        "ecchi" -> stringResource(R.string.rating_ecchi)
-        else -> video.rating
-    }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -106,11 +119,11 @@ fun VideoRow(
         )
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Text(
                 text = video.title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -118,18 +131,27 @@ fun VideoRow(
             Text(
                 text = "@${video.authorUsername}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.clickable(onClick = onOpenProfile),
             )
             Text(
                 text = stringResource(R.string.label_views_likes, video.views, video.likes),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelSmall,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = onOpen, label = { Text(ratingLabel) })
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 video.durationSeconds?.let {
-                    AssistChip(onClick = onOpen, label = { Text(formatDuration(it)) })
+                    AssistChip(onClick = onOpen, label = { SingleLineChipText(formatDuration(it)) })
+                }
+                if (onAddToPlaylist != null) {
+                    AssistChip(
+                        onClick = onAddToPlaylist,
+                        label = { SingleLineChipText(stringResource(R.string.action_add_to_playlist)) },
+                    )
                 }
             }
         }
@@ -154,8 +176,58 @@ fun UserRow(
     ) {
         AvatarImage(user.avatarUrl, user.name)
         Column(modifier = Modifier.weight(1f)) {
-            Text(user.name, fontWeight = FontWeight.SemiBold)
-            Text("@${user.username}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = user.name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "@${user.username}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+fun PlaylistRow(playlist: PlaylistSummary, onOpen: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .let { if (onOpen != null) it.clickable(onClick = onOpen) else it }
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AsyncRemoteImage(
+            url = playlist.thumbnailUrl,
+            contentDescription = playlist.title,
+            modifier = Modifier
+                .size(width = 112.dp, height = 80.dp)
+                .clip(RoundedCornerShape(16.dp)),
+        )
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = playlist.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = if (playlist.authorUsername.isNotBlank()) "@${playlist.authorUsername}" else playlist.authorName,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                text = stringResource(R.string.label_playlist_videos, playlist.numVideos),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
 }
@@ -179,9 +251,23 @@ fun ImageRow(image: ImageSummary) {
                 .clip(RoundedCornerShape(16.dp)),
         )
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(image.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("@${image.authorUsername}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(stringResource(R.string.label_views_likes, image.views, image.likes), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = image.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "@${image.authorUsername}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                text = stringResource(R.string.label_views_likes, image.views, image.likes),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
 }
@@ -204,19 +290,20 @@ fun CommentRow(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 text = "${comment.authorName} @${comment.authorUsername}",
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.clickable(onClick = onOpenProfile),
             )
             Text(
                 text = comment.createdAt.take(10),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(text = comment.body)
+            Text(text = comment.body, style = MaterialTheme.typography.bodySmall)
             if (comment.numReplies > 0) {
                 Text(
                     text = stringResource(R.string.label_replies, comment.numReplies),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -284,3 +371,87 @@ fun formatDuration(totalSeconds: Int): String {
     return "%d:%02d".format(minutes, seconds)
 }
 
+
+
+@Composable
+fun PlaylistPickerDialog(
+    video: VideoSummary,
+    controller: junzi.iwara.app.IwaraAppController,
+    onDismiss: () -> Unit,
+) {
+    var playlists by remember(video.id) { mutableStateOf(emptyList<PlaylistSummary>()) }
+    var loading by remember(video.id) { mutableStateOf(true) }
+    var error by remember(video.id) { mutableStateOf<String?>(null) }
+    var creating by remember(video.id) { mutableStateOf(false) }
+    var newPlaylistTitle by rememberSaveable(video.id) { mutableStateOf("") }
+
+    androidx.compose.runtime.LaunchedEffect(video.id) {
+        controller.loadOwnPlaylists { items, message ->
+            playlists = items
+            error = normalizePlaylistError(message)
+            loading = false
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.action_add_to_playlist)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(video.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (loading) {
+                    CircularProgressIndicator()
+                }
+                playlists.forEach { playlist ->
+                    AssistChip(
+                        onClick = {
+                            controller.addVideoToPlaylist(playlist.id, video.id) { message ->
+                                error = normalizePlaylistError(message)
+                                if (message == null) onDismiss()
+                            }
+                        },
+                        label = { Text(playlist.title) },
+                    )
+                }
+                OutlinedTextField(
+                    value = newPlaylistTitle,
+                    onValueChange = { newPlaylistTitle = it },
+                    label = { Text(stringResource(R.string.label_new_playlist)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(
+                    onClick = {
+                        val title = newPlaylistTitle.trim()
+                        if (title.isBlank()) return@TextButton
+                        creating = true
+                        controller.createPlaylist(title) { playlist, message ->
+                            creating = false
+                            error = normalizePlaylistError(message)
+                            if (playlist != null) {
+                                playlists = playlists + playlist
+                                newPlaylistTitle = ""
+                            }
+                        }
+                    },
+                    enabled = !creating && newPlaylistTitle.isNotBlank(),
+                ) {
+                    Text(if (creating) stringResource(R.string.label_loading) else stringResource(R.string.action_create_playlist))
+                }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_back)) }
+        },
+    )
+}
+
+
+private fun normalizePlaylistError(message: String?): String? {
+    if (message.isNullOrBlank()) return null
+    return if (message.contains("errors.forbidden")) {
+        "????????????????"
+    } else {
+        message
+    }
+}

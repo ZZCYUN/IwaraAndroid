@@ -5,12 +5,15 @@ import junzi.iwara.model.CommentTargetType
 import junzi.iwara.model.FeedSort
 import junzi.iwara.model.IwaraUser
 import junzi.iwara.model.ImageSummary
+import junzi.iwara.model.PlaylistDetail
+import junzi.iwara.model.PlaylistSummary
 import junzi.iwara.model.ProfileDetail
 import junzi.iwara.model.SearchType
 import junzi.iwara.model.SessionInfo
 import junzi.iwara.model.VideoDetail
 import junzi.iwara.model.VideoSummary
 import junzi.iwara.model.VideoVariant
+import java.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -106,6 +109,11 @@ class IwaraRepository(
         parseComments(api.fetchComments(CommentTargetType.Video.apiValue, id, 0, session?.refreshToken))
 
     fun fetchProfile(username: String, session: SessionInfo?): ProfileDetail {
+        val ownSession = session?.takeIf { it.user.username == username }
+        if (ownSession != null) {
+            return fetchOwnProfile(ownSession)
+        }
+
         val profilePayload = api.fetchProfile(username, session?.refreshToken)
         val user = parseUser(profilePayload.getJSONObject("user"))
         val videos = parseVideoList(
@@ -144,16 +152,194 @@ class IwaraRepository(
         )
     }
 
+    private fun fetchOwnProfile(session: SessionInfo): ProfileDetail {
+        val profilePayload = api.fetchProfile(session.user.username, session.refreshToken)
+        val user = parseUser(profilePayload.getJSONObject("user"))
+        val videos = runCatching {
+            withAccessTokenResult(session) { accessToken ->
+                parseVideoList(
+                    api.fetchUserContent(
+                        userId = user.id,
+                        type = "videos",
+                        params = mapOf(
+                            "limit" to "8",
+                            "sort" to "date",
+                        ),
+                        bearerToken = accessToken,
+                    ).optJSONArray("results") ?: JSONArray(),
+                )
+            }
+        }.getOrElse {
+            parseVideoList(
+                api.fetchVideos(
+                    params = mapOf(
+                        "rating" to "all",
+                        "user" to user.id,
+                        "limit" to "8",
+                    ),
+                    bearerToken = session.refreshToken,
+                ),
+            )
+        }
+        val images = runCatching {
+            withAccessTokenResult(session) { accessToken ->
+                parseImageList(
+                    api.fetchUserContent(
+                        userId = user.id,
+                        type = "images",
+                        params = mapOf(
+                            "limit" to "8",
+                            "sort" to "date",
+                        ),
+                        bearerToken = accessToken,
+                    ).optJSONArray("results") ?: JSONArray(),
+                )
+            }
+        }.getOrElse {
+            parseImageList(
+                api.fetchImages(
+                    params = mapOf(
+                        "rating" to "all",
+                        "user" to user.id,
+                        "limit" to "8",
+                    ),
+                    bearerToken = session.refreshToken,
+                ),
+            )
+        }
+        val followers = parseUserList(api.fetchFollowers(user.id).optJSONArray("results") ?: JSONArray())
+        val following = parseUserList(api.fetchFollowing(user.id).optJSONArray("results") ?: JSONArray())
+        val comments = parseComments(api.fetchComments(CommentTargetType.Profile.apiValue, user.id, 0, session.refreshToken))
+        val playlists = runCatching {
+            withAccessTokenResult(session) { accessToken ->
+                parsePlaylistList(
+                    api.fetchPlaylists(
+                        params = mapOf(
+                            "limit" to "8",
+                            "user" to user.id,
+                        ),
+                        bearerToken = accessToken,
+                    ).optJSONArray("results") ?: JSONArray(),
+                )
+            }
+        }.getOrDefault(emptyList())
+        return ProfileDetail(
+            user = user,
+            body = profilePayload.optStringOrNull("body"),
+            headerUrl = buildOriginalImageUrl(profilePayload.optJSONObject("header")),
+            videos = videos,
+            images = images,
+            followers = followers,
+            following = following,
+            comments = comments,
+            isOwnProfile = true,
+            playlists = playlists,
+        )
+    }
+
+    fun fetchPlaylistDetail(id: String, session: SessionInfo?): PlaylistDetail {
+        val payload = api.fetchPlaylist(id = id, bearerToken = session?.refreshToken)
+        val playlistJson = payload.getJSONObject("playlist")
+        val playlist = parsePlaylistSummary(playlistJson)
+        val videos = parseVideoList(payload.optJSONArray("results") ?: JSONArray())
+        return PlaylistDetail(
+            playlist = playlist,
+            videos = videos,
+            page = payload.optInt("page"),
+            count = payload.optInt("count"),
+            limit = payload.optInt("limit", 32),
+        )
+    }
+
+    fun fetchOwnPlaylists(session: SessionInfo): List<PlaylistSummary> =
+        withAccessTokenResult(session) { accessToken ->
+            parsePlaylistList(
+                api.fetchPlaylists(
+                    params = mapOf(
+                        "limit" to "32",
+                        "user" to session.user.id,
+                    ),
+                    bearerToken = accessToken,
+                ).optJSONArray("results") ?: JSONArray(),
+            )
+        }
+
+    fun createPlaylist(title: String, session: SessionInfo): PlaylistSummary =
+        withAccessTokenResult(session) { accessToken ->
+            parsePlaylistSummary(api.createPlaylist(title, accessToken))
+        }
+
+    fun addVideoToPlaylist(playlistId: String, videoId: String, session: SessionInfo) {
+        withAccessTokenResult(session) { accessToken ->
+            api.addToPlaylist(playlistId, videoId, accessToken)
+        }
+    }
+
+    fun deletePlaylist(playlistId: String, session: SessionInfo) {
+        withAccessTokenResult(session) { accessToken ->
+            api.deletePlaylist(playlistId, accessToken)
+        }
+    }
+
     fun postComment(
         targetType: CommentTargetType,
         targetId: String,
         body: String,
         session: SessionInfo,
     ) {
-        val writeToken = session.accessToken ?: api.fetchAccessToken(session.refreshToken)
-        sessionStore.save(session.refreshToken, writeToken)
-        api.createComment(targetType.apiValue, targetId, body, writeToken)
+        withAccessTokenResult(session) { accessToken ->
+            api.createComment(targetType.apiValue, targetId, body, accessToken)
+        }
     }
+
+    private fun <T> withAccessTokenResult(
+        session: SessionInfo,
+        block: (String) -> T,
+    ): T {
+        val token = accessToken(session)
+        return try {
+            block(token)
+        } catch (error: IwaraApiException) {
+            if (error.statusCode != 401 && error.statusCode != 403) {
+                throw error
+            }
+            block(accessToken(session, forceRefresh = true))
+        }
+    }
+
+    private fun accessToken(
+        session: SessionInfo,
+        forceRefresh: Boolean = false,
+    ): String {
+        if (!forceRefresh) {
+            val cachedToken = sessionStore.readAccessToken() ?: session.accessToken
+            if (!cachedToken.isNullOrBlank() && !isExpiredAccessToken(cachedToken)) {
+                return cachedToken
+            }
+        }
+        val refreshedToken = api.fetchAccessToken(session.refreshToken)
+        sessionStore.save(session.refreshToken, refreshedToken)
+        return refreshedToken
+    }
+
+    private fun isExpiredAccessToken(token: String): Boolean {
+        val payload = decodeJwtPayload(token) ?: return true
+        val expiresAt = payload.optLong("exp", 0L)
+        if (expiresAt <= 0L) {
+            return true
+        }
+        val nowSeconds = System.currentTimeMillis() / 1000
+        return expiresAt <= nowSeconds + 60
+    }
+
+    private fun decodeJwtPayload(token: String): JSONObject? =
+        runCatching {
+            val parts = token.split('.')
+            require(parts.size >= 2)
+            val paddedPayload = parts[1].padEnd(parts[1].length + (4 - parts[1].length % 4) % 4, '=')
+            val decodedPayload = Base64.getUrlDecoder().decode(paddedPayload)
+            JSONObject(String(decodedPayload, Charsets.UTF_8))
+        }.getOrNull()
 
     private fun parseUser(json: JSONObject): IwaraUser =
         IwaraUser(
@@ -210,6 +396,22 @@ class IwaraRepository(
             )
         }
     }
+
+    private fun parsePlaylistList(payload: JSONArray): List<PlaylistSummary> = buildList {
+        for (index in 0 until payload.length()) {
+            add(parsePlaylistSummary(payload.getJSONObject(index)))
+        }
+    }
+
+    private fun parsePlaylistSummary(json: JSONObject): PlaylistSummary =
+        PlaylistSummary(
+            id = json.optString("id"),
+            title = json.optString("title"),
+            authorName = json.optJSONObject("user")?.optString("name").orEmpty(),
+            authorUsername = json.optJSONObject("user")?.optString("username").orEmpty(),
+            numVideos = json.optInt("numVideos"),
+            thumbnailUrl = buildPlaylistThumbnailUrl(json.optJSONObject("thumbnail")),
+        )
 
     private fun parseComments(payload: JSONObject): List<CommentItem> {
         val results = payload.optJSONArray("results") ?: JSONArray()
@@ -290,21 +492,34 @@ class IwaraRepository(
         return "https://i.iwara.tv/image/thumbnail/$thumbnailId/$thumbnailName"
     }
 
+    private fun buildPlaylistThumbnailUrl(thumbnail: JSONObject?): String? {
+        val file = thumbnail?.optJSONObject("file") ?: return null
+        val fileId = file.optStringOrNull("id") ?: return null
+        val thumbnailIndex = thumbnail.optInt("thumbnail", 0)
+        return "https://i.iwara.tv/image/thumbnail/$fileId/thumbnail-${thumbnailIndex.toThumbnailIndex()}.jpg"
+    }
+
     private fun buildPosterUrl(payload: JSONObject): String? {
         val fileId = payload.optJSONObject("file")?.optStringOrNull("id") ?: return null
         val thumbnailIndex = payload.optInt("thumbnail", 0)
         return "https://i.iwara.tv/image/original/$fileId/thumbnail-${thumbnailIndex.toThumbnailIndex()}.jpg"
     }
 
-    private fun buildAvatarUrl(avatar: JSONObject?): String? {
-        val avatarId = avatar?.optStringOrNull("id") ?: return null
-        val avatarName = avatar.optStringOrNull("name") ?: return null
+    private fun buildAvatarUrl(avatar: JSONObject?): String {
+        val avatarId = avatar?.optStringOrNull("id")
+        val avatarName = avatar?.optStringOrNull("name")
+        if (avatarId.isNullOrBlank() || avatarName.isNullOrBlank()) {
+            return DEFAULT_AVATAR_URL
+        }
         return "https://i.iwara.tv/image/avatar/$avatarId/$avatarName"
     }
 
-    private fun buildOriginalImageUrl(file: JSONObject?): String? {
-        val id = file?.optStringOrNull("id") ?: return null
-        val name = file.optStringOrNull("name") ?: return null
+    private fun buildOriginalImageUrl(file: JSONObject?): String {
+        val id = file?.optStringOrNull("id")
+        val name = file?.optStringOrNull("name")
+        if (id.isNullOrBlank() || name.isNullOrBlank()) {
+            return DEFAULT_BACKGROUND_URL
+        }
         return "https://i.iwara.tv/image/original/$id/$name"
     }
 
@@ -319,4 +534,10 @@ class IwaraRepository(
 
     private fun JSONObject.optStringOrNull(key: String): String? =
         optString(key).takeIf { it.isNotBlank() && it != "null" }
+
+    companion object {
+        private const val DEFAULT_AVATAR_URL = "https://www.iwara.tv/images/default-avatar.jpg"
+        private const val DEFAULT_BACKGROUND_URL = "https://www.iwara.tv/images/default-background.jpg"
+    }
 }
+
