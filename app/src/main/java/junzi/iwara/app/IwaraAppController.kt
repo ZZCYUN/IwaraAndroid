@@ -1,5 +1,6 @@
 ﻿package junzi.iwara.app
 
+import android.net.Uri
 import android.content.Context
 import junzi.iwara.R
 import junzi.iwara.data.IwaraApi
@@ -9,6 +10,7 @@ import junzi.iwara.data.IwaraSessionStore
 import junzi.iwara.model.AppRoute
 import junzi.iwara.model.AppUiState
 import junzi.iwara.model.CommentTargetType
+import junzi.iwara.model.DownloadStatus
 import junzi.iwara.model.FeedSort
 import junzi.iwara.model.PlayerUiState
 import junzi.iwara.model.PlaylistUiState
@@ -519,7 +521,14 @@ class IwaraAppController(context: Context) {
     }
 
     fun closePlayer() {
-        _state.update { it.copy(route = AppRoute.Feed, player = PlayerUiState()) }
+        _state.update {
+            val targetRoute = if (it.downloads.activeItemId != null) AppRoute.Downloads else AppRoute.Feed
+            it.copy(
+                route = targetRoute,
+                player = PlayerUiState(),
+                downloads = it.downloads.copy(activeItemId = null),
+            )
+        }
     }
 
     private fun refreshOwnProfileIfVisible() {
@@ -580,6 +589,7 @@ class IwaraAppController(context: Context) {
     fun closeDownloads() {
         _state.update {
             val targetRoute = when {
+                it.downloads.activeItemId != null -> AppRoute.Downloads
                 it.player.detail != null -> AppRoute.Player
                 it.playlist.detail != null -> AppRoute.Playlist
                 it.profile.detail != null -> AppRoute.Profile
@@ -587,6 +597,51 @@ class IwaraAppController(context: Context) {
             }
             it.copy(route = targetRoute)
         }
+    }
+
+    fun openDownloadedVideo(downloadId: Long, onResult: (String?) -> Unit) {
+        val item = _state.value.downloads.items.firstOrNull { it.downloadId == downloadId }
+            ?: return onResult(appContext.getString(R.string.error_download_failed))
+        val localUri = item.localUri ?: return onResult(appContext.getString(R.string.message_download_not_ready))
+        if (item.status != DownloadStatus.Successful) {
+            return onResult(appContext.getString(R.string.message_download_not_ready))
+        }
+        _state.update {
+            it.copy(
+                route = AppRoute.Player,
+                downloads = it.downloads.copy(activeItemId = downloadId),
+                player = PlayerUiState(
+                    loading = false,
+                    detail = junzi.iwara.model.VideoDetail(
+                        id = item.videoId,
+                        title = item.title,
+                        authorName = "",
+                        authorUsername = "",
+                        description = "",
+                        rating = "general",
+                        views = 0,
+                        likes = 0,
+                        durationSeconds = null,
+                        posterUrl = item.thumbnailUrl,
+                        fileUrl = null,
+                        tags = emptyList(),
+                        variants = listOf(
+                            junzi.iwara.model.VideoVariant(
+                                id = item.downloadId.toString(),
+                                name = item.qualityLabel,
+                                type = "download",
+                                viewUrl = localUri,
+                                downloadUrl = localUri,
+                            ),
+                        ),
+                        selectedVariantName = item.qualityLabel,
+                    ),
+                    comments = emptyList(),
+                    commentsLoading = false,
+                ),
+            )
+        }
+        onResult(null)
     }
 
     fun downloadVideo(

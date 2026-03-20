@@ -211,6 +211,7 @@ data class DownloadsUiState(
     val loading: Boolean = false,
     val items: List<DownloadListItem> = emptyList(),
     val error: String? = null,
+    val activeItemId: Long? = null,
 )
 
 data class AppUiState(

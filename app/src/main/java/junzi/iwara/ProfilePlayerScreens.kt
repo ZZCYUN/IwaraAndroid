@@ -39,7 +39,6 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
@@ -312,11 +311,18 @@ fun PlayerScreen(
             }
         }
     }
-    val downloadableVariants = remember(detail?.variants) {
-        detail?.variants
-            ?.filterNot { it.name.equals("preview", ignoreCase = true) }
-            ?.filter { it.downloadUrl.isNotBlank() }
-            ?: emptyList()
+    val isLocalPlayback = remember(detail?.variants) {
+        detail?.variants?.isNotEmpty() == true && detail.variants.all { it.type.equals("download", ignoreCase = true) }
+    }
+    val downloadableVariants = remember(detail?.variants, isLocalPlayback) {
+        if (isLocalPlayback) {
+            emptyList()
+        } else {
+            detail?.variants
+                ?.filterNot { it.name.equals("preview", ignoreCase = true) }
+                ?.filter { it.downloadUrl.isNotBlank() }
+                ?: emptyList()
+        }
     }
     var isFullscreen by remember(detail?.id) { mutableStateOf(false) }
     var showDownloadDialog by remember(detail?.id) { mutableStateOf(false) }
@@ -345,9 +351,6 @@ fun PlayerScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = controller::openDownloads) {
-                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = stringResource(R.string.action_download_list))
-                        }
                         if (downloadableVariants.isNotEmpty()) {
                             IconButton(onClick = { showDownloadDialog = true }) {
                                 Icon(Icons.Filled.FileDownload, contentDescription = stringResource(R.string.action_download))
@@ -387,6 +390,7 @@ fun PlayerScreen(
                         detail = detail,
                         player = player,
                         isFullscreen = isFullscreen,
+                        isLocalPlayback = isLocalPlayback,
                         comments = state.player.comments,
                         commentsLoading = state.player.commentsLoading,
                         commentSubmitting = state.player.commentSubmitting,
@@ -435,6 +439,7 @@ private fun PlayerDetailBody(
     detail: VideoDetail,
     player: ExoPlayer?,
     isFullscreen: Boolean,
+    isLocalPlayback: Boolean,
     comments: List<CommentItem>,
     commentsLoading: Boolean,
     commentSubmitting: Boolean,
@@ -501,24 +506,26 @@ private fun PlayerDetailBody(
                 }
             }
         }
-        item { SectionTitle(stringResource(R.string.section_comments)) }
-        if (commentsLoading) {
-            item {
-                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+        if (!isLocalPlayback) {
+            item { SectionTitle(stringResource(R.string.section_comments)) }
+            if (commentsLoading) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 }
             }
-        }
-        items(comments, key = { it.id }) { comment ->
-            CommentRow(comment = comment, onOpenProfile = { onOpenProfile(comment.authorUsername) })
-        }
-        item {
-            CommentComposer(
-                label = stringResource(R.string.label_add_comment),
-                submitting = commentSubmitting,
-                error = commentError,
-                onSubmit = onSubmitComment,
-            )
+            items(comments, key = { it.id }) { comment ->
+                CommentRow(comment = comment, onOpenProfile = { onOpenProfile(comment.authorUsername) })
+            }
+            item {
+                CommentComposer(
+                    label = stringResource(R.string.label_add_comment),
+                    submitting = commentSubmitting,
+                    error = commentError,
+                    onSubmit = onSubmitComment,
+                )
+            }
         }
     }
 }

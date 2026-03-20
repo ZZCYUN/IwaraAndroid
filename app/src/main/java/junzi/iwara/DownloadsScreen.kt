@@ -1,10 +1,11 @@
 package junzi.iwara
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +47,7 @@ fun DownloadsScreen(
     state: AppUiState,
     controller: IwaraAppController,
 ) {
+    val context = LocalContext.current
     BackHandler(onBack = controller::closeDownloads)
 
     Scaffold(
@@ -120,7 +123,16 @@ fun DownloadsScreen(
                         }
                     }
                     items(state.downloads.items, key = { it.downloadId }) { item ->
-                        DownloadRow(item)
+                        DownloadRow(
+                            item = item,
+                            onOpen = {
+                                controller.openDownloadedVideo(item.downloadId) { message ->
+                                    if (message != null) {
+                                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                        )
                     }
                 }
             }
@@ -129,15 +141,20 @@ fun DownloadsScreen(
 }
 
 @Composable
-private fun DownloadRow(item: DownloadListItem) {
+private fun DownloadRow(
+    item: DownloadListItem,
+    onOpen: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onOpen)
             .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         AsyncRemoteImage(
             url = item.thumbnailUrl,
@@ -146,54 +163,14 @@ private fun DownloadRow(item: DownloadListItem) {
                 .size(width = 148.dp, height = 100.dp)
                 .clip(RoundedCornerShape(16.dp)),
         )
-        Column(
+        Text(
+            text = item.title,
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = item.qualityLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = downloadStatusText(item),
-                style = MaterialTheme.typography.labelMedium,
-                color = if (item.status == DownloadStatus.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            item.progressPercent?.takeIf { item.status == DownloadStatus.Pending || item.status == DownloadStatus.Running }?.let { progress ->
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
-                    Text(
-                        text = "$progress%",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Text(
-                text = item.fileName,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+            color = if (item.status == DownloadStatus.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        )
     }
-}
-
-@Composable
-private fun downloadStatusText(item: DownloadListItem): String = when (item.status) {
-    DownloadStatus.Pending -> stringResource(R.string.label_download_status_pending)
-    DownloadStatus.Running -> stringResource(R.string.label_download_status_running)
-    DownloadStatus.Paused -> stringResource(R.string.label_download_status_paused)
-    DownloadStatus.Successful -> stringResource(R.string.label_download_status_success)
-    DownloadStatus.Failed -> stringResource(R.string.label_download_status_failed)
-    DownloadStatus.Unknown -> stringResource(R.string.label_download_status_unknown)
 }
