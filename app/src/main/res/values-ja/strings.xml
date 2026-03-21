@@ -95,6 +95,8 @@
     <string name="label_player_seek_to">%1$s に移動</string>
     <string name="label_player_position">%1$s / %2$s</string>
     <string name="label_gesture_hint">左で明るさ、右で音量、横スワイプでシーク</string>    <string name="action_remove_from_playlist">プレイリストから削除</string>
+    <string name="message_loading_profile_videos">このページの動画を読み込み中…</string>
 </resources>
+
 
 

@@ -96,5 +96,7 @@
     <string name="error_download_retry_unavailable">原始下载地址已失效，请返回视频页重新下载</string>
     <string name="message_download_not_ready">下载尚未完成</string>
     <string name="action_remove_from_playlist">移出播放列表</string>
+    <string name="message_loading_profile_videos">正在加载该页视频…</string>
 </resources>
+
 

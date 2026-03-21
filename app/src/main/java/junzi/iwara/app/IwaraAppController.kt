@@ -264,16 +264,37 @@ class IwaraAppController(context: Context) {
         }
     }
 
-    fun openProfile(username: String) {
+    fun openProfile(username: String, page: Int = 0) {
         scope.launch {
+            val currentProfile = _state.value.profile
+            val currentDetail = currentProfile.detail
+            val isPagingTransition =
+                currentDetail != null &&
+                currentProfile.username == username &&
+                page != currentDetail.videoPage
+            val requestStartedAt = System.currentTimeMillis()
+
             _state.update {
                 it.copy(
                     route = AppRoute.Profile,
-                    profile = ProfileUiState(loading = true, username = username),
+                    profile = it.profile.copy(
+                        loading = true,
+                        username = username,
+                        detail = if (page == 0 || it.profile.username != username) null else it.profile.detail,
+                        error = null,
+                    ),
                 )
             }
             val result = withContext(Dispatchers.IO) {
-                runCatching { repository.fetchProfile(username, _state.value.session) }
+                runCatching { repository.fetchProfile(username, _state.value.session, page) }
+            }
+            val remainingDelay = if (isPagingTransition) {
+                (350L - (System.currentTimeMillis() - requestStartedAt)).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+            if (remainingDelay > 0L) {
+                delay(remainingDelay)
             }
             result.onSuccess { detail ->
                 _state.update {
@@ -291,7 +312,7 @@ class IwaraAppController(context: Context) {
                 _state.update {
                     it.copy(
                         route = AppRoute.Profile,
-                        profile = ProfileUiState(
+                        profile = it.profile.copy(
                             loading = false,
                             username = username,
                             error = throwable.message ?: appContext.getString(R.string.error_load_profile),
@@ -301,10 +322,9 @@ class IwaraAppController(context: Context) {
             }
         }
     }
-
-    fun openOwnProfile() {
+    fun openOwnProfile(page: Int = 0) {
         val username = _state.value.session?.user?.username ?: return
-        openProfile(username)
+        openProfile(username, page)
     }
 
     fun loadOwnPlaylists(onResult: (List<junzi.iwara.model.PlaylistSummary>, String?) -> Unit) {
@@ -483,7 +503,7 @@ class IwaraAppController(context: Context) {
         submitComment(CommentTargetType.Profile, profileId, text) {
             val username = _state.value.profile.username
             if (username != null) {
-                openProfile(username)
+                openProfile(username, _state.value.profile.detail?.videoPage ?: 0)
             }
         }
     }
@@ -559,7 +579,7 @@ class IwaraAppController(context: Context) {
         val session = _state.value.session ?: return
         val profile = _state.value.profile.detail ?: return
         if (profile.user.username == session.user.username) {
-            openOwnProfile()
+            openOwnProfile(profile.videoPage)
         }
     }
 
@@ -758,6 +778,11 @@ class IwaraAppController(context: Context) {
         scope.cancel()
     }
 }
+
+
+
+
+
 
 
 

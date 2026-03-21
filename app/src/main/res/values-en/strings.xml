@@ -95,6 +95,8 @@
     <string name="label_player_seek_to">Seek to %1$s</string>
     <string name="label_player_position">%1$s / %2$s</string>
     <string name="label_gesture_hint">Left brightness, right volume, horizontal seek</string>    <string name="action_remove_from_playlist">Remove from playlist</string>
+    <string name="message_loading_profile_videos">Loading videos for this page…</string>
 </resources>
+
 
 

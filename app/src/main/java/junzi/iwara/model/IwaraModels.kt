@@ -1,4 +1,4 @@
-package junzi.iwara.model
+﻿package junzi.iwara.model
 
 import junzi.iwara.R
 
@@ -123,6 +123,9 @@ data class ProfileDetail(
     val body: String?,
     val headerUrl: String?,
     val videos: List<VideoSummary>,
+    val videoPage: Int,
+    val videoCount: Int,
+    val videoLimit: Int,
     val images: List<ImageSummary>,
     val followers: List<IwaraUser>,
     val following: List<IwaraUser>,
@@ -130,7 +133,6 @@ data class ProfileDetail(
     val isOwnProfile: Boolean = false,
     val playlists: List<PlaylistSummary> = emptyList(),
 )
-
 data class PlaylistDetail(
     val playlist: PlaylistSummary,
     val videos: List<VideoSummary>,
@@ -228,3 +230,7 @@ data class AppUiState(
     val playlist: PlaylistUiState = PlaylistUiState(),
     val downloads: DownloadsUiState = DownloadsUiState(),
 )
+
+
+
+

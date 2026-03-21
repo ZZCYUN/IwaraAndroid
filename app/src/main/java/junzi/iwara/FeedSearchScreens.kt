@@ -1,4 +1,4 @@
-package junzi.iwara
+﻿package junzi.iwara
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,7 +31,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -50,6 +53,18 @@ fun FeedScreen(
     controller: IwaraAppController,
 ) {
     var playlistTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    val feedListState = rememberLazyListState()
+    var lastCompletedFeedPage by rememberSaveable { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(state.feed.loading, state.feed.page, state.feed.videos.size) {
+        if (!state.feed.loading) {
+            val previousPage = lastCompletedFeedPage
+            if (previousPage != null && previousPage != state.feed.page) {
+                feedListState.animateScrollToItem(0)
+            }
+            lastCompletedFeedPage = state.feed.page
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -137,6 +152,7 @@ fun FeedScreen(
                 )
             }
             LazyColumn(
+                state = feedListState,
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -274,3 +290,11 @@ fun SearchScreen(
         }
     }
 }
+
+
+
+
+
+
+
+

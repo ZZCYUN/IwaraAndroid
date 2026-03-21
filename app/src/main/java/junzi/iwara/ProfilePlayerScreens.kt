@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,6 +50,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -75,6 +77,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -120,42 +123,70 @@ fun ProfileScreen(
             )
         },
     ) { paddingValues ->
-        when {
-            state.profile.loading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+        ) {
+            when {
+                detail != null -> {
+                    ProfileBody(
+                        detail = detail,
+                        showSocialSections = detail.user.id == state.session?.user?.id || detail.user.username == state.session?.user?.username,
+                        commentSubmitting = state.profile.commentSubmitting,
+                        commentError = state.profile.commentError,
+                        onOpenProfile = controller::openProfile,
+                        onOpenVideo = controller::openVideo,
+                        onOpenPlaylist = controller::openPlaylist,
+                        onAddToPlaylist = { profilePlaylistTargetId = it },
+                        onVideoPageChange = { page -> controller.openProfile(detail.user.username, page) },
+                        isVideoPageLoading = state.profile.loading,
+                        onSubmitComment = controller::submitProfileComment,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                state.profile.loading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+
+                state.profile.error != null -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(state.profile.error, color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
 
-            state.profile.error != null -> {
+            if (detail != null && state.profile.loading) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(paddingValues),
+                        .background(Color.Black.copy(alpha = 0.36f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(state.profile.error, color = MaterialTheme.colorScheme.error)
+                    Column(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(28.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(horizontal = 28.dp, vertical = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        CircularProgressIndicator()
+                        Text(
+                            text = stringResource(R.string.message_loading_profile_videos),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
                 }
-            }
-
-            detail != null -> {
-                ProfileBody(
-                    detail = detail,
-                    showSocialSections = detail.user.id == state.session?.user?.id || detail.user.username == state.session?.user?.username,
-                    commentSubmitting = state.profile.commentSubmitting,
-                    commentError = state.profile.commentError,
-                    onOpenProfile = controller::openProfile,
-                    onOpenVideo = controller::openVideo,
-                    onOpenPlaylist = controller::openPlaylist,
-                    onAddToPlaylist = { profilePlaylistTargetId = it },
-                    onSubmitComment = controller::submitProfileComment,
-                    modifier = Modifier.padding(paddingValues),
-                )
             }
         }
 
@@ -165,8 +196,7 @@ fun ProfileScreen(
         playlistCandidates.firstOrNull { it.id == profilePlaylistTargetId }?.let { video ->
             PlaylistPickerDialog(video = video, controller = controller, onDismiss = { profilePlaylistTargetId = null })
         }
-    }
-}
+    }}
 
 @Composable
 private fun ProfileBody(
@@ -178,10 +208,29 @@ private fun ProfileBody(
     onOpenVideo: (String) -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onAddToPlaylist: (String) -> Unit,
+    onVideoPageChange: (Int) -> Unit,
+    isVideoPageLoading: Boolean,
     onSubmitComment: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val profileListState = rememberLazyListState()
+    var lastObservedVideoPage by remember(detail.user.id) { mutableStateOf<Int?>(null) }
+    val videoSectionIndex = 1 +
+        (if (showSocialSections) 2 else 0) +
+        (if (detail.isOwnProfile && detail.playlists.isNotEmpty()) 1 + detail.playlists.size else 0)
+
+    LaunchedEffect(detail.user.id, detail.videoPage, isVideoPageLoading, videoSectionIndex) {
+        if (!isVideoPageLoading) {
+            val previousPage = lastObservedVideoPage
+            if (previousPage != null && previousPage != detail.videoPage) {
+                profileListState.animateScrollToItem(videoSectionIndex)
+            }
+            lastObservedVideoPage = detail.videoPage
+        }
+    }
+
     LazyColumn(
+        state = profileListState,
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -211,9 +260,13 @@ private fun ProfileBody(
                 onAddToPlaylist = { onAddToPlaylist(video.id) },
             )
         }
-        item { SectionTitle(stringResource(R.string.section_images)) }
-        items(detail.images, key = { it.id }) { image ->
-            ImageRow(image)
+        item {
+            PaginationBar(
+                currentPage = detail.videoPage,
+                totalCount = detail.videoCount,
+                pageSize = detail.videoLimit,
+                onPageSelected = onVideoPageChange,
+            )
         }
         item { SectionTitle(stringResource(R.string.section_profile_comments)) }
         items(detail.comments, key = { it.id }) { comment ->
@@ -539,7 +592,6 @@ private fun InlinePlayerCard(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
-            .clip(RoundedCornerShape(24.dp))
             .background(Color.Black),
     ) {
         if (player != null) {
@@ -559,7 +611,6 @@ private fun InlinePlayerCard(
         }
     }
 }
-
 @Composable
 private fun FullscreenPlayerOverlay(
     title: String,
@@ -725,44 +776,13 @@ private fun PlayerViewport(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        IconButton(
-                            onClick = {
-                                showControls()
-                                onToggleFullscreen()
-                            },
-                            modifier = Modifier.size(48.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.FullscreenExit,
-                                contentDescription = stringResource(R.string.action_exit_fullscreen),
-                                tint = Color.White,
-                            )
-                        }
                     }
                 }
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (!playerState.isPlaying) {
-                        IconButton(
-                            onClick = {
-                                showControls()
-                                player.play()
-                            },
-                            modifier = Modifier.size(if (isFullscreen) 72.dp else 60.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = stringResource(R.string.action_play),
-                                tint = Color.White,
-                                modifier = Modifier.size(if (isFullscreen) 40.dp else 34.dp),
-                            )
-                        }
-                    }
-                }
+                )
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1210,6 +1230,29 @@ private fun AudioManager.setMusicVolumeFraction(fraction: Float) {
     val targetVolume = (fraction.coerceIn(0f, 1f) * maxVolume).toInt().coerceIn(0, maxVolume)
     setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
