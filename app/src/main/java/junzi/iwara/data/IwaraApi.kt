@@ -198,6 +198,17 @@ class IwaraApi {
         )
     }
 
+    fun removeFromPlaylist(
+        playlistId: String,
+        videoId: String,
+        bearerToken: String,
+    ) {
+        request(
+            method = "DELETE",
+            url = apiUrl("/playlist/$playlistId/$videoId"),
+            bearerToken = bearerToken,
+        )
+    }
     fun deletePlaylist(
         playlistId: String,
         bearerToken: String,
@@ -370,5 +381,7 @@ class IwaraApiException(
     val statusCode: Int,
     val body: String,
 ) : RuntimeException(message)
+
+
 
 

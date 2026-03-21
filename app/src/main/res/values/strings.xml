@@ -22,6 +22,18 @@
     <string name="action_exit_fullscreen">退出全屏</string>
     <string name="action_play">播放</string>
     <string name="action_pause">暂停</string>
+    <string name="action_open_download">打开视频</string>
+    <string name="action_retry_download">重试下载</string>
+    <string name="action_delete_download">删除下载</string>
+    <string name="action_delete_playlist">删除播放列表</string>
+    <string name="action_download">下载</string>
+    <string name="action_download_list">下载列表</string>
+    <string name="action_refresh_downloads">刷新下载列表</string>
+    <string name="action_first_page">首页</string>
+    <string name="action_previous_page">上一页</string>
+    <string name="action_next_page">下一页</string>
+    <string name="action_last_page">尾页</string>
+    <string name="action_go_to_page">跳转</string>
     <string name="feed_sort_trending">趋势</string>
     <string name="feed_sort_latest">最新</string>
     <string name="filter_all">全部</string>
@@ -64,11 +76,6 @@
     <string name="error_load_video">加载播放页失败</string>
     <string name="error_load_comments">加载评论失败</string>
     <string name="error_post_comment">发表评论失败</string>
-    <string name="action_download">下载</string>
-    <string name="action_download_list">下载列表</string>
-    <string name="action_refresh_downloads">刷新下载列表</string>
-    <string name="action_previous_page">上一页</string>
-    <string name="action_next_page">下一页</string>
     <string name="title_downloads">下载列表</string>
     <string name="title_download_quality">选择下载清晰度</string>
     <string name="label_downloads_empty">暂无下载</string>
@@ -78,9 +85,16 @@
     <string name="label_download_status_paused">已暂停</string>
     <string name="label_download_status_success">已完成</string>
     <string name="label_download_status_failed">下载失败</string>
+    <string name="label_download_status_interrupted">已中断</string>
     <string name="label_download_status_unknown">状态未知</string>
     <string name="label_page_indicator">第 %1$d / %2$d 页</string>
+    <string name="label_page_total_count">共 %1$d 条</string>
+    <string name="label_jump_to_page">页码</string>
+    <string name="message_delete_playlist_confirm">确定删除播放列表“%1$s”？</string>
     <string name="message_download_started">已开始下载 %1$s</string>
     <string name="error_download_failed">下载失败</string>
+    <string name="error_download_retry_unavailable">原始下载地址已失效，请返回视频页重新下载</string>
     <string name="message_download_not_ready">下载尚未完成</string>
+    <string name="action_remove_from_playlist">移出播放列表</string>
 </resources>
+

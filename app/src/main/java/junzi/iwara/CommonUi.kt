@@ -99,6 +99,8 @@ fun VideoRow(
     onOpen: () -> Unit,
     onOpenProfile: () -> Unit,
     onAddToPlaylist: (() -> Unit)? = null,
+    extraActionLabel: String? = null,
+    onExtraAction: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -151,6 +153,12 @@ fun VideoRow(
                     AssistChip(
                         onClick = onAddToPlaylist,
                         label = { SingleLineChipText(stringResource(R.string.action_add_to_playlist)) },
+                    )
+                }
+                if (onExtraAction != null && !extraActionLabel.isNullOrBlank()) {
+                    AssistChip(
+                        onClick = onExtraAction,
+                        label = { SingleLineChipText(extraActionLabel) },
                     )
                 }
             }
@@ -425,11 +433,17 @@ fun PlaylistPickerDialog(
                         if (title.isBlank()) return@TextButton
                         creating = true
                         controller.createPlaylist(title) { playlist, message ->
-                            creating = false
                             error = normalizePlaylistError(message)
-                            if (playlist != null) {
-                                playlists = playlists + playlist
-                                newPlaylistTitle = ""
+                            if (playlist == null) {
+                                creating = false
+                                return@createPlaylist
+                            }
+                            controller.addVideoToPlaylist(playlist.id, video.id) { addMessage ->
+                                creating = false
+                                error = normalizePlaylistError(addMessage)
+                                if (addMessage == null) {
+                                    onDismiss()
+                                }
                             }
                         }
                     },
@@ -455,3 +469,4 @@ private fun normalizePlaylistError(message: String?): String? {
         message
     }
 }
+

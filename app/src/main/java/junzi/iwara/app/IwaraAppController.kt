@@ -1,7 +1,7 @@
 ﻿package junzi.iwara.app
 
-import android.net.Uri
 import android.content.Context
+import android.net.Uri
 import junzi.iwara.R
 import junzi.iwara.data.IwaraApi
 import junzi.iwara.data.IwaraDownloads
@@ -10,6 +10,7 @@ import junzi.iwara.data.IwaraSessionStore
 import junzi.iwara.model.AppRoute
 import junzi.iwara.model.AppUiState
 import junzi.iwara.model.CommentTargetType
+import junzi.iwara.model.DownloadListItem
 import junzi.iwara.model.DownloadStatus
 import junzi.iwara.model.FeedSort
 import junzi.iwara.model.PlayerUiState
@@ -18,8 +19,11 @@ import junzi.iwara.model.ProfileUiState
 import junzi.iwara.model.SearchType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +39,7 @@ class IwaraAppController(context: Context) {
     )
     private val downloads = IwaraDownloads(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var downloadRefreshJob: Job? = null
 
     private val _state = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = _state.asStateFlow()
@@ -342,6 +347,20 @@ class IwaraAppController(context: Context) {
         }
     }
 
+    fun removeVideoFromPlaylist(playlistId: String, videoId: String, onResult: (String?) -> Unit) {
+        val session = _state.value.session ?: return onResult(appContext.getString(R.string.error_login_failed))
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { repository.removeVideoFromPlaylist(playlistId, videoId, session) }
+            }
+            result.onSuccess {
+                onResult(null)
+            }.onFailure {
+                onResult(it.message ?: appContext.getString(R.string.error_load_profile))
+            }
+        }
+    }
+
     fun deletePlaylist(playlistId: String, onResult: (String?) -> Unit) {
         val session = _state.value.session ?: return onResult(appContext.getString(R.string.error_login_failed))
         scope.launch {
@@ -521,13 +540,18 @@ class IwaraAppController(context: Context) {
     }
 
     fun closePlayer() {
+        val targetRoute = if (_state.value.downloads.activeItemId != null) AppRoute.Downloads else AppRoute.Feed
         _state.update {
-            val targetRoute = if (it.downloads.activeItemId != null) AppRoute.Downloads else AppRoute.Feed
             it.copy(
                 route = targetRoute,
                 player = PlayerUiState(),
                 downloads = it.downloads.copy(activeItemId = null),
             )
+        }
+        if (targetRoute == AppRoute.Downloads) {
+            scope.launch {
+                refreshDownloadsInternal(openRoute = false, showLoading = false)
+            }
         }
     }
 
@@ -548,42 +572,71 @@ class IwaraAppController(context: Context) {
 
     fun openDownloads() {
         scope.launch {
-            _state.update { it.copy(route = AppRoute.Downloads, downloads = it.downloads.copy(loading = true, error = null)) }
-            refreshDownloads(openRoute = true)
+            _state.update { it.copy(route = AppRoute.Downloads, downloads = it.downloads.copy(error = null)) }
+            refreshDownloadsInternal(openRoute = true, showLoading = true)
         }
     }
 
     fun refreshDownloads() {
-        refreshDownloads(openRoute = false)
+        scope.launch {
+            refreshDownloadsInternal(openRoute = false, showLoading = true)
+        }
     }
 
-    private fun refreshDownloads(openRoute: Boolean) {
-        scope.launch {
-            if (!openRoute) {
-                _state.update { it.copy(downloads = it.downloads.copy(loading = true, error = null)) }
-            }
-            val result = withContext(Dispatchers.IO) {
-                runCatching { downloads.list() }
-            }
-            result.onSuccess { items ->
-                _state.update {
-                    it.copy(
-                        route = if (openRoute) AppRoute.Downloads else it.route,
-                        downloads = it.downloads.copy(loading = false, items = items, error = null),
-                    )
-                }
-            }.onFailure { throwable ->
-                _state.update {
-                    it.copy(
-                        route = if (openRoute) AppRoute.Downloads else it.route,
-                        downloads = it.downloads.copy(
-                            loading = false,
-                            error = throwable.message ?: appContext.getString(R.string.error_download_failed),
-                        ),
-                    )
-                }
+    private suspend fun refreshDownloadsInternal(openRoute: Boolean, showLoading: Boolean) {
+        if (showLoading) {
+            _state.update {
+                it.copy(
+                    route = if (openRoute) AppRoute.Downloads else it.route,
+                    downloads = it.downloads.copy(loading = true, error = null),
+                )
             }
         }
+        val result = withContext(Dispatchers.IO) {
+            runCatching { downloads.list() }
+        }
+        result.onSuccess { items ->
+            _state.update {
+                it.copy(
+                    route = if (openRoute) AppRoute.Downloads else it.route,
+                    downloads = it.downloads.copy(loading = false, items = items, error = null),
+                )
+            }
+            maybeStartDownloadRefreshLoop()
+        }.onFailure { throwable ->
+            _state.update {
+                it.copy(
+                    route = if (openRoute) AppRoute.Downloads else it.route,
+                    downloads = it.downloads.copy(
+                        loading = false,
+                        error = throwable.message ?: appContext.getString(R.string.error_download_failed),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun maybeStartDownloadRefreshLoop() {
+        if (_state.value.route != AppRoute.Downloads) return
+        if (_state.value.downloads.items.none(::isDownloadActive)) return
+        if (downloadRefreshJob?.isActive == true) return
+
+        downloadRefreshJob = scope.launch {
+            while (isActive && _state.value.route == AppRoute.Downloads && _state.value.downloads.items.any(::isDownloadActive)) {
+                delay(1000)
+                if (_state.value.route != AppRoute.Downloads) break
+                refreshDownloadsInternal(openRoute = false, showLoading = false)
+            }
+            downloadRefreshJob = null
+        }
+    }
+
+    private fun isDownloadActive(item: DownloadListItem): Boolean = when (item.status) {
+        DownloadStatus.Pending,
+        DownloadStatus.Running,
+        DownloadStatus.Paused
+        -> true
+        else -> false
     }
 
     fun closeDownloads() {
@@ -654,7 +707,35 @@ class IwaraAppController(context: Context) {
                 runCatching { downloads.enqueue(detail, variant) }
             }
             result.onSuccess {
-                refreshDownloads(openRoute = false)
+                refreshDownloadsInternal(openRoute = false, showLoading = false)
+                onResult(null)
+            }.onFailure {
+                onResult(it.message ?: appContext.getString(R.string.error_download_failed))
+            }
+        }
+    }
+
+    fun retryDownload(downloadId: Long, onResult: (String?) -> Unit) {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { downloads.retry(downloadId) }
+            }
+            result.onSuccess {
+                refreshDownloadsInternal(openRoute = false, showLoading = false)
+                onResult(null)
+            }.onFailure {
+                onResult(it.message ?: appContext.getString(R.string.error_download_failed))
+            }
+        }
+    }
+
+    fun deleteDownload(downloadId: Long, onResult: (String?) -> Unit) {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { downloads.delete(downloadId) }
+            }
+            result.onSuccess {
+                refreshDownloadsInternal(openRoute = false, showLoading = false)
                 onResult(null)
             }.onFailure {
                 onResult(it.message ?: appContext.getString(R.string.error_download_failed))
@@ -677,4 +758,8 @@ class IwaraAppController(context: Context) {
         scope.cancel()
     }
 }
+
+
+
+
 

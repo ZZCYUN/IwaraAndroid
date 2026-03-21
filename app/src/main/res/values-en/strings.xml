@@ -16,6 +16,18 @@
     <string name="action_logout">Logout</string>
     <string name="action_search_execute">Run search</string>
     <string name="action_send_comment">Send comment</string>
+    <string name="action_open_download">Open video</string>
+    <string name="action_retry_download">Retry download</string>
+    <string name="action_delete_download">Delete download</string>
+    <string name="action_delete_playlist">Delete playlist</string>
+    <string name="action_download">Download</string>
+    <string name="action_download_list">Downloads</string>
+    <string name="action_refresh_downloads">Refresh downloads</string>
+    <string name="action_first_page">First</string>
+    <string name="action_previous_page">Previous</string>
+    <string name="action_next_page">Next</string>
+    <string name="action_last_page">Last</string>
+    <string name="action_go_to_page">Go</string>
     <string name="feed_sort_trending">Trending</string>
     <string name="feed_sort_latest">Latest</string>
     <string name="filter_all">All</string>
@@ -49,4 +61,40 @@
     <string name="error_load_video">Failed to load player</string>
     <string name="error_load_comments">Failed to load comments</string>
     <string name="error_post_comment">Failed to post comment</string>
+    <string name="title_downloads">Downloads</string>
+    <string name="title_download_quality">Choose download quality</string>
+    <string name="label_downloads_empty">No downloads yet</string>
+    <string name="label_download_quality_hint">Downloads are saved to the public Downloads folder.</string>
+    <string name="label_download_status_pending">Pending</string>
+    <string name="label_download_status_running">Downloading</string>
+    <string name="label_download_status_paused">Paused</string>
+    <string name="label_download_status_success">Completed</string>
+    <string name="label_download_status_failed">Failed</string>
+    <string name="label_download_status_interrupted">Interrupted</string>
+    <string name="label_download_status_unknown">Unknown status</string>
+    <string name="label_page_indicator">Page %1$d / %2$d</string>
+    <string name="label_page_total_count">%1$d results total</string>
+    <string name="label_jump_to_page">Page</string>
+    <string name="message_delete_playlist_confirm">Delete playlist "%1$s"?</string>
+    <string name="message_download_started">Started downloading %1$s</string>
+    <string name="error_download_failed">Download failed</string>
+    <string name="error_download_retry_unavailable">The original download URL is no longer available. Start the download again from the video page.</string>
+    <string name="message_download_not_ready">The download is not complete yet</string>
+    <string name="action_add_to_playlist">Add to playlist</string>
+    <string name="action_create_playlist">Create playlist</string>
+    <string name="action_enter_fullscreen">Enter fullscreen</string>
+    <string name="action_exit_fullscreen">Exit fullscreen</string>
+    <string name="action_play">Play</string>
+    <string name="action_pause">Pause</string>
+    <string name="section_my_playlists">My Playlists</string>
+    <string name="label_new_playlist">New playlist</string>
+    <string name="label_playlist_videos">%1$d videos</string>
+    <string name="label_unavailable_video">This video has no playable source</string>
+    <string name="label_player_brightness">Brightness %1$d%%</string>
+    <string name="label_player_volume">Volume %1$d%%</string>
+    <string name="label_player_seek_to">Seek to %1$s</string>
+    <string name="label_player_position">%1$s / %2$s</string>
+    <string name="label_gesture_hint">Left brightness, right volume, horizontal seek</string>    <string name="action_remove_from_playlist">Remove from playlist</string>
 </resources>
+
+

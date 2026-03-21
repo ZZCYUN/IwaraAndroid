@@ -298,6 +298,11 @@ class IwaraRepository(
         }
     }
 
+    fun removeVideoFromPlaylist(playlistId: String, videoId: String, session: SessionInfo) {
+        withAccessTokenResult(session) { accessToken ->
+            api.removeFromPlaylist(playlistId, videoId, accessToken)
+        }
+    }
     fun deletePlaylist(playlistId: String, session: SessionInfo) {
         withAccessTokenResult(session) { accessToken ->
             api.deletePlaylist(playlistId, accessToken)
@@ -563,4 +568,9 @@ class IwaraRepository(
         private const val DEFAULT_BACKGROUND_URL = "https://www.iwara.tv/images/default-background.jpg"
     }
 }
+
+
+
+
+
 

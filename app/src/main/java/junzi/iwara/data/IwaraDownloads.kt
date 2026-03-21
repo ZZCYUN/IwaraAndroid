@@ -4,6 +4,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import junzi.iwara.R
 import junzi.iwara.model.DownloadListItem
 import junzi.iwara.model.DownloadStatus
 import junzi.iwara.model.VideoDetail
@@ -23,34 +24,92 @@ class IwaraDownloads(context: Context) {
 
         val qualityLabel = variantLabel(variant)
         val fileName = buildFileName(detail.title, detail.id, qualityLabel)
-        val request = DownloadManager.Request(Uri.parse(variant.downloadUrl))
-            .setMimeType("video/mp4")
-            .setTitle(detail.title.ifBlank { fileName })
-            .setDescription(qualityLabel)
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(true)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-
-        val downloadId = downloadManager.enqueue(request)
         val record = DownloadRecord(
-            downloadId = downloadId,
+            downloadId = 0L,
             videoId = detail.id,
             title = detail.title,
             thumbnailUrl = detail.posterUrl,
             qualityLabel = qualityLabel,
             fileName = fileName,
             createdAtMs = System.currentTimeMillis(),
+            downloadUrl = variant.downloadUrl,
+            lastKnownStatus = DownloadStatus.Pending,
+            lastKnownProgressPercent = 0,
         )
-        upsertRecord(record)
-        return mergeRecord(record, queryStatuses(longArrayOf(downloadId))[downloadId])
+        val storedRecord = enqueueRecord(record)
+        upsertRecord(storedRecord)
+        return resolveItem(storedRecord, queryStatuses(longArrayOf(storedRecord.downloadId))[storedRecord.downloadId])
     }
 
     fun list(): List<DownloadListItem> {
         val records = readRecords().sortedByDescending { it.createdAtMs }
+        if (records.isEmpty()) return emptyList()
+
         val statuses = queryStatuses(records.map { it.downloadId }.toLongArray())
-        return records.map { record -> mergeRecord(record, statuses[record.downloadId]) }
+        val refreshedRecords = ArrayList<DownloadRecord>(records.size)
+        val items = ArrayList<DownloadListItem>(records.size)
+        records.forEach { record ->
+            val state = statuses[record.downloadId]
+            val item = resolveItem(record, state)
+            refreshedRecords += refreshRecord(record, state, item)
+            items += item
+        }
+        if (refreshedRecords != records) {
+            writeRecords(refreshedRecords)
+        }
+        return items
     }
+
+    fun delete(downloadId: Long) {
+        val records = readRecords()
+        val record = records.firstOrNull { it.downloadId == downloadId }
+        if (record != null) {
+            removeArtifacts(record)
+            writeRecords(records.filterNot { it.downloadId == downloadId })
+            return
+        }
+        runCatching { downloadManager.remove(downloadId) }
+    }
+
+    fun retry(downloadId: Long): DownloadListItem {
+        val records = readRecords()
+        val record = records.firstOrNull { it.downloadId == downloadId }
+            ?: throw IllegalArgumentException(appContext.getString(R.string.error_download_failed))
+        val sourceUrl = record.downloadUrl.ifBlank {
+            queryStatuses(longArrayOf(downloadId))[downloadId]?.sourceUrl.orEmpty()
+        }
+        if (sourceUrl.isBlank()) {
+            throw IllegalStateException(appContext.getString(R.string.error_download_retry_unavailable))
+        }
+
+        removeArtifacts(record)
+        val nextRecord = enqueueRecord(
+            record.copy(
+                downloadId = 0L,
+                createdAtMs = System.currentTimeMillis(),
+                downloadUrl = sourceUrl,
+                lastKnownStatus = DownloadStatus.Pending,
+                lastKnownProgressPercent = 0,
+            ),
+        )
+        writeRecords(records.filterNot { it.downloadId == downloadId } + nextRecord)
+        return resolveItem(nextRecord, queryStatuses(longArrayOf(nextRecord.downloadId))[nextRecord.downloadId])
+    }
+
+    private fun enqueueRecord(record: DownloadRecord): DownloadRecord {
+        val downloadId = downloadManager.enqueue(buildRequest(record))
+        return record.copy(downloadId = downloadId)
+    }
+
+    private fun buildRequest(record: DownloadRecord): DownloadManager.Request =
+        DownloadManager.Request(Uri.parse(record.downloadUrl))
+            .setMimeType("video/mp4")
+            .setTitle(record.title.ifBlank { record.fileName })
+            .setDescription(record.qualityLabel)
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setAllowedOverMetered(true)
+            .setAllowedOverRoaming(true)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, record.fileName)
 
     private fun queryStatuses(ids: LongArray): Map<Long, DownloadQueryState> {
         if (ids.isEmpty()) return emptyMap()
@@ -62,6 +121,7 @@ class IwaraDownloads(context: Context) {
             val downloadedIndex = cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
             val totalIndex = cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
             val localUriIndex = cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI)
+            val sourceUrlIndex = cursor.getColumnIndex(DownloadManager.COLUMN_URI)
             while (cursor.moveToNext()) {
                 val downloadId = cursor.getLong(idIndex)
                 val status = mapStatus(cursor.getInt(statusIndex))
@@ -76,6 +136,7 @@ class IwaraDownloads(context: Context) {
                     status = status,
                     progressPercent = progress,
                     localUri = cursor.getString(localUriIndex),
+                    sourceUrl = if (sourceUrlIndex >= 0) cursor.getString(sourceUrlIndex) else null,
                 )
             }
         }
@@ -91,8 +152,31 @@ class IwaraDownloads(context: Context) {
         else -> DownloadStatus.Unknown
     }
 
-    private fun mergeRecord(record: DownloadRecord, state: DownloadQueryState?): DownloadListItem =
-        DownloadListItem(
+    private fun resolveItem(record: DownloadRecord, state: DownloadQueryState?): DownloadListItem {
+        val localUri = resolveLocalUri(record, state?.localUri)
+        val status = when {
+            state != null && state.status == DownloadStatus.Successful && localUri == null -> DownloadStatus.Interrupted
+            state != null -> state.status
+            localUri != null -> DownloadStatus.Successful
+            else -> when (record.lastKnownStatus) {
+                DownloadStatus.Pending,
+                DownloadStatus.Running,
+                DownloadStatus.Paused,
+                DownloadStatus.Successful,
+                DownloadStatus.Unknown
+                -> DownloadStatus.Interrupted
+                DownloadStatus.Failed,
+                DownloadStatus.Interrupted
+                -> record.lastKnownStatus
+            }
+        }
+        val progress = when {
+            status == DownloadStatus.Successful -> 100
+            state?.progressPercent != null -> state.progressPercent
+            status == DownloadStatus.Interrupted -> record.lastKnownProgressPercent
+            else -> null
+        }
+        return DownloadListItem(
             downloadId = record.downloadId,
             videoId = record.videoId,
             title = record.title,
@@ -100,10 +184,46 @@ class IwaraDownloads(context: Context) {
             qualityLabel = record.qualityLabel,
             fileName = record.fileName,
             createdAtMs = record.createdAtMs,
-            status = state?.status ?: DownloadStatus.Unknown,
-            progressPercent = state?.progressPercent,
-            localUri = state?.localUri,
+            status = status,
+            progressPercent = progress,
+            localUri = localUri,
         )
+    }
+
+    private fun refreshRecord(
+        record: DownloadRecord,
+        state: DownloadQueryState?,
+        item: DownloadListItem,
+    ): DownloadRecord = record.copy(
+        downloadUrl = state?.sourceUrl?.takeIf { it.isNotBlank() } ?: record.downloadUrl,
+        lastKnownStatus = item.status,
+        lastKnownProgressPercent = item.progressPercent,
+    )
+
+    private fun resolveLocalUri(record: DownloadRecord, candidateUri: String?): String? {
+        candidateUri?.takeIf(::uriExists)?.let { return it }
+        return expectedFile(record)
+            .takeIf { it.exists() }
+            ?.let { Uri.fromFile(it).toString() }
+    }
+
+    private fun uriExists(uriString: String): Boolean {
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return false
+        return when (uri.scheme?.lowercase()) {
+            null, "" -> File(uriString).exists()
+            "file" -> uri.path?.let(::File)?.exists() == true
+            "content" -> true
+            else -> false
+        }
+    }
+
+    private fun expectedFile(record: DownloadRecord): File =
+        File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), record.fileName)
+
+    private fun removeArtifacts(record: DownloadRecord) {
+        runCatching { downloadManager.remove(record.downloadId) }
+        expectedFile(record).takeIf { it.exists() }?.delete()
+    }
 
     private fun upsertRecord(record: DownloadRecord) {
         val records = readRecords().filterNot { it.downloadId == record.downloadId } + record
@@ -130,13 +250,13 @@ class IwaraDownloads(context: Context) {
 
     private fun buildFileName(title: String, videoId: String, qualityLabel: String): String {
         val safeTitle = title
-            .replace(Regex("""[\\/:*?"<>|\p{Cntrl}]"""), "_")
+            .replace(Regex("""[\\/:*?\"<>|\p{Cntrl}]"""), "_")
             .replace(Regex("""\s+"""), " ")
             .trim(' ', '.')
             .ifBlank { "Iwara Video" }
             .take(120)
         val safeQuality = qualityLabel
-            .replace(Regex("""[\\/:*?"<>|\p{Cntrl}]"""), "_")
+            .replace(Regex("""[\\/:*?\"<>|\p{Cntrl}]"""), "_")
             .trim(' ', '.')
             .ifBlank { "default" }
         return "$safeTitle [$safeQuality] [$videoId].mp4"
@@ -152,6 +272,7 @@ class IwaraDownloads(context: Context) {
         val status: DownloadStatus,
         val progressPercent: Int?,
         val localUri: String?,
+        val sourceUrl: String?,
     )
 
     private data class DownloadRecord(
@@ -162,6 +283,9 @@ class IwaraDownloads(context: Context) {
         val qualityLabel: String,
         val fileName: String,
         val createdAtMs: Long,
+        val downloadUrl: String,
+        val lastKnownStatus: DownloadStatus,
+        val lastKnownProgressPercent: Int?,
     ) {
         fun toJson(): JSONObject = JSONObject()
             .put("downloadId", downloadId)
@@ -171,6 +295,9 @@ class IwaraDownloads(context: Context) {
             .put("qualityLabel", qualityLabel)
             .put("fileName", fileName)
             .put("createdAtMs", createdAtMs)
+            .put("downloadUrl", downloadUrl)
+            .put("lastKnownStatus", lastKnownStatus.name)
+            .put("lastKnownProgressPercent", lastKnownProgressPercent)
 
         companion object {
             fun fromJson(json: JSONObject): DownloadRecord = DownloadRecord(
@@ -181,7 +308,17 @@ class IwaraDownloads(context: Context) {
                 qualityLabel = json.optString("qualityLabel"),
                 fileName = json.optString("fileName"),
                 createdAtMs = json.optLong("createdAtMs"),
+                downloadUrl = json.optString("downloadUrl"),
+                lastKnownStatus = json.optString("lastKnownStatus")
+                    .takeIf { it.isNotBlank() }
+                    ?.let(::statusFromName)
+                    ?: DownloadStatus.Unknown,
+                lastKnownProgressPercent = json.optInt("lastKnownProgressPercent", -1)
+                    .takeIf { it >= 0 },
             )
+
+            private fun statusFromName(name: String): DownloadStatus =
+                runCatching { DownloadStatus.valueOf(name) }.getOrDefault(DownloadStatus.Unknown)
         }
     }
 }

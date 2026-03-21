@@ -33,6 +33,7 @@ enum class DownloadStatus {
     Paused,
     Successful,
     Failed,
+    Interrupted,
     Unknown,
 }
 

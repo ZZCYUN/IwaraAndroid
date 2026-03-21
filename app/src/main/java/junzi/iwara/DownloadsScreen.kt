@@ -6,16 +6,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -102,7 +104,7 @@ fun DownloadsScreen(
             }
 
             else -> {
-                LazyColumn(
+                androidx.compose.foundation.lazy.LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues),
@@ -132,6 +134,20 @@ fun DownloadsScreen(
                                     }
                                 }
                             },
+                            onRetry = {
+                                controller.retryDownload(item.downloadId) { message ->
+                                    if (message != null) {
+                                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            onDelete = {
+                                controller.deleteDownload(item.downloadId) { message ->
+                                    if (message != null) {
+                                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
                         )
                     }
                 }
@@ -144,33 +160,135 @@ fun DownloadsScreen(
 private fun DownloadRow(
     item: DownloadListItem,
     onOpen: () -> Unit,
+    onRetry: () -> Unit,
+    onDelete: () -> Unit,
 ) {
+    val canOpen = item.status == DownloadStatus.Successful && item.localUri != null
+    val canRetry = when (item.status) {
+        DownloadStatus.Failed,
+        DownloadStatus.Interrupted,
+        DownloadStatus.Unknown,
+        DownloadStatus.Paused
+        -> true
+        else -> false
+    }
+    val statusLabel = downloadStatusLabel(item.status)
+    val statusColor = downloadStatusColor(item.status)
+    val rowModifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 16.dp)
+        .clip(RoundedCornerShape(20.dp))
+        .background(MaterialTheme.colorScheme.surface)
+        .let { modifier ->
+            if (canOpen) modifier.clickable(onClick = onOpen) else modifier
+        }
+        .padding(12.dp)
+
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable(onClick = onOpen)
-            .padding(12.dp),
+        modifier = rowModifier,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         AsyncRemoteImage(
             url = item.thumbnailUrl,
             contentDescription = item.title,
             modifier = Modifier
-                .size(width = 148.dp, height = 100.dp)
+                .size(width = 132.dp, height = 90.dp)
                 .clip(RoundedCornerShape(16.dp)),
         )
-        Text(
-            text = item.title,
+        Column(
             modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-            color = if (item.status == DownloadStatus.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-        )
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                color = if (item.status == DownloadStatus.Failed || item.status == DownloadStatus.Interrupted) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+            Text(
+                text = item.qualityLabel,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = buildString {
+                    append(statusLabel)
+                    item.progressPercent?.let {
+                        append(" · ")
+                        append(it)
+                        append('%')
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = statusColor,
+            )
+            Text(
+                text = item.fileName,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            when {
+                item.progressPercent != null -> {
+                    LinearProgressIndicator(
+                        progress = { item.progressPercent / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                item.status == DownloadStatus.Pending ||
+                    item.status == DownloadStatus.Running ||
+                    item.status == DownloadStatus.Paused -> {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (canOpen) {
+                    IconButton(onClick = onOpen) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = stringResource(R.string.action_open_download))
+                    }
+                }
+                if (canRetry) {
+                    IconButton(onClick = onRetry) {
+                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.action_retry_download))
+                    }
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.action_delete_download))
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun downloadStatusLabel(status: DownloadStatus): String = when (status) {
+    DownloadStatus.Pending -> stringResource(R.string.label_download_status_pending)
+    DownloadStatus.Running -> stringResource(R.string.label_download_status_running)
+    DownloadStatus.Paused -> stringResource(R.string.label_download_status_paused)
+    DownloadStatus.Successful -> stringResource(R.string.label_download_status_success)
+    DownloadStatus.Failed -> stringResource(R.string.label_download_status_failed)
+    DownloadStatus.Interrupted -> stringResource(R.string.label_download_status_interrupted)
+    DownloadStatus.Unknown -> stringResource(R.string.label_download_status_unknown)
+}
+
+@Composable
+private fun downloadStatusColor(status: DownloadStatus) = when (status) {
+    DownloadStatus.Failed,
+    DownloadStatus.Interrupted
+    -> MaterialTheme.colorScheme.error
+    DownloadStatus.Successful -> MaterialTheme.colorScheme.primary
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }

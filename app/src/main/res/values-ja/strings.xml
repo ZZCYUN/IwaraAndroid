@@ -16,6 +16,18 @@
     <string name="action_logout">ログアウト</string>
     <string name="action_search_execute">検索を実行</string>
     <string name="action_send_comment">コメントを送信</string>
+    <string name="action_open_download">動画を開く</string>
+    <string name="action_retry_download">ダウンロードを再試行</string>
+    <string name="action_delete_download">ダウンロードを削除</string>
+    <string name="action_delete_playlist">プレイリストを削除</string>
+    <string name="action_download">ダウンロード</string>
+    <string name="action_download_list">ダウンロード一覧</string>
+    <string name="action_refresh_downloads">ダウンロード一覧を更新</string>
+    <string name="action_first_page">最初</string>
+    <string name="action_previous_page">前へ</string>
+    <string name="action_next_page">次へ</string>
+    <string name="action_last_page">最後</string>
+    <string name="action_go_to_page">移動</string>
     <string name="feed_sort_trending">人気</string>
     <string name="feed_sort_latest">新着</string>
     <string name="filter_all">すべて</string>
@@ -49,4 +61,40 @@
     <string name="error_load_video">再生ページの読み込みに失敗しました</string>
     <string name="error_load_comments">コメントの読み込みに失敗しました</string>
     <string name="error_post_comment">コメント送信に失敗しました</string>
+    <string name="title_downloads">ダウンロード一覧</string>
+    <string name="title_download_quality">ダウンロード画質を選択</string>
+    <string name="label_downloads_empty">ダウンロードはありません</string>
+    <string name="label_download_quality_hint">ダウンロードは公開 Downloads フォルダに保存されます。</string>
+    <string name="label_download_status_pending">待機中</string>
+    <string name="label_download_status_running">ダウンロード中</string>
+    <string name="label_download_status_paused">一時停止</string>
+    <string name="label_download_status_success">完了</string>
+    <string name="label_download_status_failed">失敗</string>
+    <string name="label_download_status_interrupted">中断</string>
+    <string name="label_download_status_unknown">状態不明</string>
+    <string name="label_page_indicator">%1$d / %2$d ページ</string>
+    <string name="label_page_total_count">全 %1$d 件</string>
+    <string name="label_jump_to_page">ページ</string>
+    <string name="message_delete_playlist_confirm">プレイリスト「%1$s」を削除しますか？</string>
+    <string name="message_download_started">%1$s のダウンロードを開始しました</string>
+    <string name="error_download_failed">ダウンロードに失敗しました</string>
+    <string name="error_download_retry_unavailable">元のダウンロード URL が無効です。動画ページからもう一度ダウンロードしてください。</string>
+    <string name="message_download_not_ready">ダウンロードはまだ完了していません</string>
+    <string name="action_add_to_playlist">プレイリストに追加</string>
+    <string name="action_create_playlist">プレイリストを作成</string>
+    <string name="action_enter_fullscreen">全画面にする</string>
+    <string name="action_exit_fullscreen">全画面を終了</string>
+    <string name="action_play">再生</string>
+    <string name="action_pause">一時停止</string>
+    <string name="section_my_playlists">マイプレイリスト</string>
+    <string name="label_new_playlist">新しいプレイリスト</string>
+    <string name="label_playlist_videos">%1$d 本の動画</string>
+    <string name="label_unavailable_video">再生可能なソースがありません</string>
+    <string name="label_player_brightness">明るさ %1$d%%</string>
+    <string name="label_player_volume">音量 %1$d%%</string>
+    <string name="label_player_seek_to">%1$s に移動</string>
+    <string name="label_player_position">%1$s / %2$s</string>
+    <string name="label_gesture_hint">左で明るさ、右で音量、横スワイプでシーク</string>    <string name="action_remove_from_playlist">プレイリストから削除</string>
 </resources>
+
+
