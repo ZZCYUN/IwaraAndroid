@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Fullscreen
@@ -41,7 +42,6 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,9 +50,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -89,6 +89,8 @@ import androidx.media3.ui.PlayerView
 import junzi.iwara.app.IwaraAppController
 import junzi.iwara.model.AppUiState
 import junzi.iwara.model.CommentItem
+import junzi.iwara.model.ContentType
+import junzi.iwara.model.ImageSummary
 import junzi.iwara.model.PlaylistSummary
 import junzi.iwara.model.ProfileDetail
 import junzi.iwara.model.VideoDetail
@@ -102,8 +104,16 @@ fun ProfileScreen(
     state: AppUiState,
     controller: IwaraAppController,
 ) {
-    BackHandler { controller.loadFeed(state.feed.sort, state.feed.selectedTag) }
     val detail = state.profile.detail
+    val isOwnProfileRoute = detail?.isOwnProfile == true || state.profile.username == state.session?.user?.username
+    BackHandler(enabled = !isOwnProfileRoute) {
+        controller.loadFeed(
+            sort = state.feed.sort,
+            tag = state.feed.selectedTag,
+            page = state.feed.page,
+            contentType = state.feed.contentType,
+        )
+    }
     var profilePlaylistTargetId by remember(detail?.user?.id) { mutableStateOf<String?>(null) }
 
     Scaffold(
@@ -111,8 +121,19 @@ fun ProfileScreen(
             TopAppBar(
                 title = { Text(detail?.user?.username ?: state.profile.username.orEmpty()) },
                 navigationIcon = {
-                    IconButton(onClick = { controller.loadFeed(state.feed.sort, state.feed.selectedTag) }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                    if (!isOwnProfileRoute) {
+                        IconButton(
+                            onClick = {
+                                controller.loadFeed(
+                                    sort = state.feed.sort,
+                                    tag = state.feed.selectedTag,
+                                    page = state.feed.page,
+                                    contentType = state.feed.contentType,
+                                )
+                            },
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                        }
                     }
                 },
                 actions = {
@@ -120,6 +141,15 @@ fun ProfileScreen(
                         Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.action_search))
                     }
                 },
+            )
+        },
+        bottomBar = {
+            MainBottomBar(
+                route = state.route,
+                isOwnProfile = isOwnProfileRoute,
+                onOpenHome = controller::openFeed,
+                onOpenAi = controller::openAi,
+                onOpenMy = { controller.openOwnProfile() },
             )
         },
     ) { paddingValues ->
@@ -132,15 +162,33 @@ fun ProfileScreen(
                 detail != null -> {
                     ProfileBody(
                         detail = detail,
+                        contentType = state.profile.contentType,
                         showSocialSections = detail.user.id == state.session?.user?.id || detail.user.username == state.session?.user?.username,
                         commentSubmitting = state.profile.commentSubmitting,
                         commentError = state.profile.commentError,
                         onOpenProfile = controller::openProfile,
                         onOpenVideo = controller::openVideo,
+                        onOpenImage = controller::openImage,
                         onOpenPlaylist = controller::openPlaylist,
                         onAddToPlaylist = { profilePlaylistTargetId = it },
-                        onVideoPageChange = { page -> controller.openProfile(detail.user.username, page) },
-                        isVideoPageLoading = state.profile.loading,
+                        onContentTypeChange = controller::openProfileContentType,
+                        onVideoPageChange = { page ->
+                            controller.openProfile(
+                                username = detail.user.username,
+                                videoPage = page,
+                                imagePage = detail.imagePage,
+                                contentType = ContentType.Videos,
+                            )
+                        },
+                        onImagePageChange = { page ->
+                            controller.openProfile(
+                                username = detail.user.username,
+                                videoPage = detail.videoPage,
+                                imagePage = page,
+                                contentType = ContentType.Images,
+                            )
+                        },
+                        isWorksPageLoading = state.profile.loading,
                         onSubmitComment = controller::submitProfileComment,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -182,7 +230,13 @@ fun ProfileScreen(
                     ) {
                         CircularProgressIndicator()
                         Text(
-                            text = stringResource(R.string.message_loading_profile_videos),
+                            text = stringResource(
+                                if (state.profile.contentType == ContentType.Videos) {
+                                    R.string.message_loading_profile_videos
+                                } else {
+                                    R.string.message_loading_profile_images
+                                },
+                            ),
                             style = MaterialTheme.typography.titleMedium,
                         )
                     }
@@ -190,44 +244,49 @@ fun ProfileScreen(
             }
         }
 
-        val playlistCandidates = buildList {
-            detail?.videos?.let { addAll(it) }
-        }
-        playlistCandidates.firstOrNull { it.id == profilePlaylistTargetId }?.let { video ->
+        detail?.videos?.firstOrNull { it.id == profilePlaylistTargetId }?.let { video ->
             PlaylistPickerDialog(video = video, controller = controller, onDismiss = { profilePlaylistTargetId = null })
         }
-    }}
+    }
+}
 
 @Composable
 private fun ProfileBody(
     detail: ProfileDetail,
+    contentType: ContentType,
     showSocialSections: Boolean,
     commentSubmitting: Boolean,
     commentError: String?,
     onOpenProfile: (String) -> Unit,
     onOpenVideo: (String) -> Unit,
+    onOpenImage: (String) -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onAddToPlaylist: (String) -> Unit,
+    onContentTypeChange: (ContentType) -> Unit,
     onVideoPageChange: (Int) -> Unit,
-    isVideoPageLoading: Boolean,
+    onImagePageChange: (Int) -> Unit,
+    isWorksPageLoading: Boolean,
     onSubmitComment: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val profileListState = rememberLazyListState()
-    var lastObservedVideoPage by remember(detail.user.id) { mutableStateOf<Int?>(null) }
-    val videoSectionIndex = 1 +
+    var lastObservedPage by remember(detail.user.id, contentType) { mutableStateOf<Int?>(null) }
+    val worksSectionIndex = 2 +
         (if (showSocialSections) 2 else 0) +
         (if (detail.isOwnProfile && detail.playlists.isNotEmpty()) 1 + detail.playlists.size else 0)
 
-    LaunchedEffect(detail.user.id, detail.videoPage, isVideoPageLoading, videoSectionIndex) {
-        if (!isVideoPageLoading) {
-            val previousPage = lastObservedVideoPage
-            if (previousPage != null && previousPage != detail.videoPage) {
-                profileListState.animateScrollToItem(videoSectionIndex)
+    LaunchedEffect(detail.user.id, contentType, detail.videoPage, detail.imagePage, isWorksPageLoading, worksSectionIndex) {
+        if (!isWorksPageLoading) {
+            val currentPage = if (contentType == ContentType.Videos) detail.videoPage else detail.imagePage
+            val previousPage = lastObservedPage
+            if (previousPage != null && previousPage != currentPage) {
+                profileListState.animateScrollToItem(worksSectionIndex)
             }
-            lastObservedVideoPage = detail.videoPage
+            lastObservedPage = currentPage
         }
     }
+
+    val workItems: List<ImageSummary> = detail.images
 
     LazyColumn(
         state = profileListState,
@@ -251,22 +310,55 @@ private fun ProfileBody(
                 PlaylistRow(playlist, onOpen = { onOpenPlaylist(playlist.id) })
             }
         }
-        item { SectionTitle(stringResource(R.string.section_videos)) }
-        items(detail.videos, key = { it.id }) { video ->
-            VideoRow(
-                video = video,
-                onOpen = { onOpenVideo(video.id) },
-                onOpenProfile = { onOpenProfile(video.authorUsername) },
-                onAddToPlaylist = { onAddToPlaylist(video.id) },
+        item {
+            ContentTypeToggleBar(
+                selectedType = contentType,
+                onSelected = onContentTypeChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
             )
         }
         item {
-            PaginationBar(
-                currentPage = detail.videoPage,
-                totalCount = detail.videoCount,
-                pageSize = detail.videoLimit,
-                onPageSelected = onVideoPageChange,
+            SectionTitle(
+                stringResource(
+                    if (contentType == ContentType.Videos) R.string.section_videos else R.string.section_images,
+                ),
             )
+        }
+        if (contentType == ContentType.Videos) {
+            items(detail.videos, key = { it.id }) { video ->
+                VideoRow(
+                    video = video,
+                    onOpen = { onOpenVideo(video.id) },
+                    onOpenProfile = { onOpenProfile(video.authorUsername) },
+                    onAddToPlaylist = { onAddToPlaylist(video.id) },
+                )
+            }
+            item {
+                PaginationBar(
+                    currentPage = detail.videoPage,
+                    totalCount = detail.videoCount,
+                    pageSize = detail.videoLimit,
+                    onPageSelected = onVideoPageChange,
+                )
+            }
+        } else {
+            items(workItems, key = { it.id }) { image ->
+                ImageRow(
+                    image = image,
+                    onOpen = { onOpenImage(image.id) },
+                    onOpenProfile = { onOpenProfile(image.authorUsername) },
+                )
+            }
+            item {
+                PaginationBar(
+                    currentPage = detail.imagePage,
+                    totalCount = detail.imageCount,
+                    pageSize = detail.imageLimit,
+                    onPageSelected = onImagePageChange,
+                )
+            }
         }
         item { SectionTitle(stringResource(R.string.section_profile_comments)) }
         items(detail.comments, key = { it.id }) { comment ->
@@ -341,8 +433,6 @@ private fun UserStrip(
         }
     }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     state: AppUiState,
@@ -377,8 +467,25 @@ fun PlayerScreen(
                 ?: emptyList()
         }
     }
+    val playlistVideo = remember(detail) {
+        detail?.let {
+            junzi.iwara.model.VideoSummary(
+                id = it.id,
+                title = it.title,
+                authorName = it.authorName,
+                authorUsername = it.authorUsername,
+                views = it.views,
+                likes = it.likes,
+                durationSeconds = it.durationSeconds,
+                thumbnailUrl = it.posterUrl,
+                rating = it.rating,
+                tags = it.tags,
+            )
+        }
+    }
     var isFullscreen by remember(detail?.id) { mutableStateOf(false) }
     var showDownloadDialog by remember(detail?.id) { mutableStateOf(false) }
+    var showPlaylistDialog by remember(detail?.id) { mutableStateOf(false) }
 
     DisposableEffect(player) {
         onDispose { player?.release() }
@@ -393,78 +500,55 @@ fun PlayerScreen(
     BackHandler(enabled = isFullscreen) { isFullscreen = false }
     BackHandler(enabled = !isFullscreen, onBack = controller::closePlayer)
 
-    Scaffold(
-        topBar = {
-            if (!isFullscreen) {
-                TopAppBar(
-                    title = { Text(detail?.title ?: stringResource(R.string.label_loading)) },
-                    navigationIcon = {
-                        IconButton(onClick = controller::closePlayer) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
-                        }
-                    },
-                    actions = {
-                        if (downloadableVariants.isNotEmpty()) {
-                            IconButton(onClick = { showDownloadDialog = true }) {
-                                Icon(Icons.Filled.FileDownload, contentDescription = stringResource(R.string.action_download))
-                            }
-                        }
-                    },
-                )
-            }
-        },
-    ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize()) {
-            when {
-                state.player.loading -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                }
-
-                state.player.error != null -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(state.player.error, color = MaterialTheme.colorScheme.error)
-                    }
-                }
-
-                detail != null -> {
-                    PlayerDetailBody(
-                        detail = detail,
-                        player = player,
-                        isFullscreen = isFullscreen,
-                        isLocalPlayback = isLocalPlayback,
-                        comments = state.player.comments,
-                        commentsLoading = state.player.commentsLoading,
-                        commentSubmitting = state.player.commentSubmitting,
-                        commentError = state.player.commentError,
-                        onVariantSelected = controller::selectVariant,
-                        onOpenProfile = controller::openProfile,
-                        onOpenTag = controller::openTag,
-                        onSubmitComment = controller::submitVideoComment,
-                        onToggleFullscreen = { isFullscreen = !isFullscreen },
-                        modifier = Modifier.padding(paddingValues),
-                    )
+    Box(modifier = Modifier.fillMaxSize()) {
+        when {
+            state.player.loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
                 }
             }
 
-            if (detail != null && player != null && isFullscreen) {
-                FullscreenPlayerOverlay(
-                    title = detail.title,
+            state.player.error != null -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(state.player.error, color = MaterialTheme.colorScheme.error)
+                }
+            }
+
+            detail != null -> {
+                PlayerDetailBody(
+                    detail = detail,
                     player = player,
-                    onExitFullscreen = { isFullscreen = false },
+                    isFullscreen = isFullscreen,
+                    isLocalPlayback = isLocalPlayback,
+                    downloadableVariants = downloadableVariants,
+                    comments = state.player.comments,
+                    commentsLoading = state.player.commentsLoading,
+                    commentSubmitting = state.player.commentSubmitting,
+                    commentError = state.player.commentError,
+                    onVariantSelected = controller::selectVariant,
+                    onOpenProfile = controller::openProfile,
+                    onOpenTag = controller::openTag,
+                    onSubmitComment = controller::submitVideoComment,
+                    onToggleFullscreen = { isFullscreen = !isFullscreen },
+                    onShowDownloadDialog = { showDownloadDialog = true },
+                    onShowPlaylistDialog = { showPlaylistDialog = true },
+                    modifier = Modifier.statusBarsPadding(),
                 )
             }
+        }
+
+        if (detail != null && player != null && isFullscreen) {
+            FullscreenPlayerOverlay(
+                title = detail.title,
+                player = player,
+                onExitFullscreen = { isFullscreen = false },
+            )
         }
     }
 
@@ -485,6 +569,14 @@ fun PlayerScreen(
             },
         )
     }
+
+    if (showPlaylistDialog && playlistVideo != null && !isLocalPlayback) {
+        PlaylistPickerDialog(
+            video = playlistVideo,
+            controller = controller,
+            onDismiss = { showPlaylistDialog = false },
+        )
+    }
 }
 
 @Composable
@@ -493,6 +585,7 @@ private fun PlayerDetailBody(
     player: ExoPlayer?,
     isFullscreen: Boolean,
     isLocalPlayback: Boolean,
+    downloadableVariants: List<VideoVariant>,
     comments: List<CommentItem>,
     commentsLoading: Boolean,
     commentSubmitting: Boolean,
@@ -502,6 +595,8 @@ private fun PlayerDetailBody(
     onOpenTag: (String) -> Unit,
     onSubmitComment: (String) -> Unit,
     onToggleFullscreen: () -> Unit,
+    onShowDownloadDialog: () -> Unit,
+    onShowPlaylistDialog: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -531,6 +626,23 @@ private fun PlayerDetailBody(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    if (downloadableVariants.isNotEmpty()) {
+                        AssistChip(
+                            onClick = onShowDownloadDialog,
+                            label = { Text(stringResource(R.string.action_download)) },
+                        )
+                    }
+                    if (!isLocalPlayback) {
+                        AssistChip(
+                            onClick = onShowPlaylistDialog,
+                            label = { Text(stringResource(R.string.action_add_to_playlist)) },
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     detail.variants.filterNot { it.name.equals("preview", ignoreCase = true) }.forEach { variant ->
                         val variantLabel = when {
                             variant.name.equals("Source", ignoreCase = true) -> stringResource(R.string.quality_source)
@@ -543,15 +655,17 @@ private fun PlayerDetailBody(
                         )
                     }
                 }
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    detail.tags.forEach { tag ->
-                        AssistChip(
-                            onClick = { onOpenTag(tag) },
-                            label = { Text(tag) },
-                        )
+                if (detail.tags.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        detail.tags.forEach { tag ->
+                            AssistChip(
+                                onClick = { onOpenTag(tag) },
+                                label = { Text(tag) },
+                            )
+                        }
                     }
                 }
                 if (detail.description.isNotBlank()) {
@@ -588,29 +702,37 @@ private fun InlinePlayerCard(
     player: ExoPlayer?,
     onToggleFullscreen: () -> Unit,
 ) {
-    Box(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f)
-            .background(Color.Black),
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(24.dp),
+        tonalElevation = 4.dp,
+        color = Color.Black,
     ) {
-        if (player != null) {
+        if (player == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(stringResource(R.string.label_unavailable_video), color = Color.White)
+            }
+        } else {
             PlayerViewport(
                 player = player,
                 isFullscreen = false,
                 onToggleFullscreen = onToggleFullscreen,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(Color.Black),
             )
-        } else {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = stringResource(R.string.label_unavailable_video),
-                    color = Color.White,
-                )
-            }
         }
     }
 }
+
 @Composable
 private fun FullscreenPlayerOverlay(
     title: String,
@@ -1230,6 +1352,18 @@ private fun AudioManager.setMusicVolumeFraction(fraction: Float) {
     val targetVolume = (fraction.coerceIn(0f, 1f) * maxVolume).toInt().coerceIn(0, maxVolume)
     setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

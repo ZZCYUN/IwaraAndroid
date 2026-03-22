@@ -34,6 +34,7 @@
     <string name="title_search">Search</string>
     <string name="label_search_query">Search query</string>
     <string name="search_type_videos">Videos</string>
+    <string name="search_type_images">Images</string>
     <string name="search_type_users">Users</string>
     <string name="section_followers">Followers</string>
     <string name="section_following">Following</string>
@@ -59,6 +60,7 @@
     <string name="error_search_failed">Search failed</string>
     <string name="error_load_profile">Failed to load profile</string>
     <string name="error_load_video">Failed to load player</string>
+    <string name="error_load_image">Failed to load image</string>
     <string name="error_load_comments">Failed to load comments</string>
     <string name="error_post_comment">Failed to post comment</string>
     <string name="title_downloads">Downloads</string>
@@ -74,6 +76,7 @@
     <string name="label_download_status_unknown">Unknown status</string>
     <string name="label_page_indicator">Page %1$d / %2$d</string>
     <string name="label_page_total_count">%1$d results total</string>
+    <string name="label_image_page_indicator">Page %1$d / %2$d</string>
     <string name="label_jump_to_page">Page</string>
     <string name="message_delete_playlist_confirm">Delete playlist "%1$s"?</string>
     <string name="message_download_started">Started downloading %1$s</string>
@@ -94,9 +97,20 @@
     <string name="label_player_volume">Volume %1$d%%</string>
     <string name="label_player_seek_to">Seek to %1$s</string>
     <string name="label_player_position">%1$s / %2$s</string>
-    <string name="label_gesture_hint">Left brightness, right volume, horizontal seek</string>    <string name="action_remove_from_playlist">Remove from playlist</string>
+    <string name="label_gesture_hint">Left brightness, right volume, horizontal seek</string>
+    <string name="action_remove_from_playlist">Remove from playlist</string>
     <string name="message_loading_profile_videos">Loading videos for this page…</string>
+    <string name="message_loading_profile_images">Loading images for this page…</string>
+    <string name="title_ai">Iwara AI</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="bottom_home">Home</string>
+    <string name="bottom_ai">AI</string>
+    <string name="bottom_my">My</string>
 </resources>
+
+
+
+
 
 
 

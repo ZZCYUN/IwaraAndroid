@@ -1,13 +1,16 @@
-﻿package junzi.iwara.data
+package junzi.iwara.data
 
 import junzi.iwara.model.CommentItem
 import junzi.iwara.model.CommentTargetType
 import junzi.iwara.model.FeedSort
-import junzi.iwara.model.IwaraUser
+import junzi.iwara.model.ImageAsset
+import junzi.iwara.model.ImageDetail
 import junzi.iwara.model.ImageSummary
+import junzi.iwara.model.IwaraSite
+import junzi.iwara.model.IwaraUser
+import junzi.iwara.model.PagedResult
 import junzi.iwara.model.PlaylistDetail
 import junzi.iwara.model.PlaylistSummary
-import junzi.iwara.model.PagedResult
 import junzi.iwara.model.ProfileDetail
 import junzi.iwara.model.SearchType
 import junzi.iwara.model.SessionInfo
@@ -22,6 +25,9 @@ class IwaraRepository(
     private val api: IwaraApi,
     private val sessionStore: IwaraSessionStore,
 ) {
+    fun <T> withSite(site: IwaraSite, block: IwaraRepository.() -> T): T =
+        api.withSite(site) { this@IwaraRepository.block() }
+
     fun bootstrapSession(): SessionInfo? {
         val refreshToken = sessionStore.readRefreshToken() ?: return null
         val accessToken = sessionStore.readAccessToken()
@@ -74,10 +80,42 @@ class IwaraRepository(
         )
     }
 
+    fun fetchImages(
+        sort: FeedSort,
+        session: SessionInfo?,
+        tag: String? = null,
+        page: Int = 0,
+    ): PagedResult<ImageSummary> {
+        val params = mutableMapOf(
+            "sort" to sort.apiValue,
+            "limit" to "24",
+            "rating" to "all",
+            "page" to page.toString(),
+        )
+        tag?.let { params["tags"] = it }
+        val payload = api.fetchImagesPage(params, session?.refreshToken)
+        return PagedResult(
+            items = parseImageList(payload.optJSONArray("results") ?: JSONArray()),
+            page = payload.optInt("page", page),
+            count = payload.optInt("count"),
+            limit = payload.optInt("limit", params["limit"]?.toIntOrNull() ?: 24),
+        )
+    }
+
     fun searchVideos(query: String, session: SessionInfo?, page: Int = 0): PagedResult<VideoSummary> {
         val payload = api.fetchSearchResults(query, SearchType.Videos.apiValue, page, session?.refreshToken)
         return PagedResult(
             items = parseVideoList(payload.optJSONArray("results") ?: JSONArray()),
+            page = payload.optInt("page", page),
+            count = payload.optInt("count"),
+            limit = payload.optInt("limit", 32),
+        )
+    }
+
+    fun searchImages(query: String, session: SessionInfo?, page: Int = 0): PagedResult<ImageSummary> {
+        val payload = api.fetchSearchResults(query, SearchType.Images.apiValue, page, session?.refreshToken)
+        return PagedResult(
+            items = parseImageList(payload.optJSONArray("results") ?: JSONArray()),
             page = payload.optInt("page", page),
             count = payload.optInt("count"),
             limit = payload.optInt("limit", 32),
@@ -124,18 +162,43 @@ class IwaraRepository(
         )
     }
 
+    fun fetchImageDetail(id: String, session: SessionInfo?): ImageDetail {
+        val payload = api.fetchImage(id, session?.refreshToken)
+        return ImageDetail(
+            id = payload.optString("id"),
+            title = payload.optString("title"),
+            authorName = payload.optJSONObject("user")?.optString("name").orEmpty(),
+            authorUsername = payload.optJSONObject("user")?.optString("username").orEmpty(),
+            description = payload.optStringOrNull("body").orEmpty(),
+            rating = payload.optString("rating"),
+            views = payload.optInt("numViews"),
+            likes = payload.optInt("numLikes"),
+            tags = parseTagIds(payload.optJSONArray("tags")),
+            assets = parseImageAssets(payload),
+        )
+    }
+
     fun fetchVideoComments(id: String, session: SessionInfo?): List<CommentItem> =
         parseComments(api.fetchComments(CommentTargetType.Video.apiValue, id, 0, session?.refreshToken))
 
-    fun fetchProfile(username: String, session: SessionInfo?, page: Int = 0): ProfileDetail {
+    fun fetchImageComments(id: String, session: SessionInfo?): List<CommentItem> =
+        parseComments(api.fetchComments(CommentTargetType.Image.apiValue, id, 0, session?.refreshToken))
+
+    fun fetchProfile(
+        username: String,
+        session: SessionInfo?,
+        videoPage: Int = 0,
+        imagePage: Int = 0,
+    ): ProfileDetail {
         val ownSession = session?.takeIf { it.user.username == username }
         if (ownSession != null) {
-            return fetchOwnProfile(ownSession, page)
+            return fetchOwnProfile(ownSession, videoPage, imagePage)
         }
 
         val profilePayload = api.fetchProfile(username, session?.refreshToken)
         val user = parseUser(profilePayload.getJSONObject("user"))
-        val videoPage = fetchPublicProfileVideos(user.id, session, page)
+        val videoResults = fetchPublicProfileVideos(user.id, session, videoPage)
+        val imageResults = fetchPublicProfileImages(user.id, session, imagePage)
         val followers = parseUserList(api.fetchFollowers(user.id).optJSONArray("results") ?: JSONArray())
         val following = parseUserList(api.fetchFollowing(user.id).optJSONArray("results") ?: JSONArray())
         val comments = parseComments(api.fetchComments(CommentTargetType.Profile.apiValue, user.id, 0, session?.refreshToken))
@@ -144,20 +207,29 @@ class IwaraRepository(
             user = user,
             body = profilePayload.optStringOrNull("body"),
             headerUrl = buildOriginalImageUrl(profilePayload.optJSONObject("header")),
-            videos = videoPage.items,
-            videoPage = videoPage.page,
-            videoCount = videoPage.count,
-            videoLimit = videoPage.limit,
-            images = emptyList(),
+            videos = videoResults.items,
+            videoPage = videoResults.page,
+            videoCount = videoResults.count,
+            videoLimit = videoResults.limit,
+            images = imageResults.items,
+            imagePage = imageResults.page,
+            imageCount = imageResults.count,
+            imageLimit = imageResults.limit,
             followers = followers,
             following = following,
             comments = comments,
         )
     }
-    private fun fetchOwnProfile(session: SessionInfo, page: Int = 0): ProfileDetail {
+
+    private fun fetchOwnProfile(
+        session: SessionInfo,
+        videoPage: Int = 0,
+        imagePage: Int = 0,
+    ): ProfileDetail {
         val profilePayload = api.fetchProfile(session.user.username, session.refreshToken)
         val user = parseUser(profilePayload.getJSONObject("user"))
-        val videoPage = fetchOwnProfileVideos(user.id, session, page)
+        val videoResults = fetchOwnProfileVideos(user.id, session, videoPage)
+        val imageResults = fetchOwnProfileImages(user.id, session, imagePage)
         val followers = parseUserList(api.fetchFollowers(user.id).optJSONArray("results") ?: JSONArray())
         val following = parseUserList(api.fetchFollowing(user.id).optJSONArray("results") ?: JSONArray())
         val comments = parseComments(api.fetchComments(CommentTargetType.Profile.apiValue, user.id, 0, session.refreshToken))
@@ -178,11 +250,14 @@ class IwaraRepository(
             user = user,
             body = profilePayload.optStringOrNull("body"),
             headerUrl = buildOriginalImageUrl(profilePayload.optJSONObject("header")),
-            videos = videoPage.items,
-            videoPage = videoPage.page,
-            videoCount = videoPage.count,
-            videoLimit = videoPage.limit,
-            images = emptyList(),
+            videos = videoResults.items,
+            videoPage = videoResults.page,
+            videoCount = videoResults.count,
+            videoLimit = videoResults.limit,
+            images = imageResults.items,
+            imagePage = imageResults.page,
+            imageCount = imageResults.count,
+            imageLimit = imageResults.limit,
             followers = followers,
             following = following,
             comments = comments,
@@ -190,6 +265,7 @@ class IwaraRepository(
             playlists = playlists,
         )
     }
+
     private fun fetchPublicProfileVideos(userId: String, session: SessionInfo?, page: Int): PagedResult<VideoSummary> {
         val payload = api.fetchVideosPage(
             params = mapOf(
@@ -203,6 +279,25 @@ class IwaraRepository(
         )
         return PagedResult(
             items = parseVideoList(payload.optJSONArray("results") ?: JSONArray()),
+            page = payload.optInt("page", page),
+            count = payload.optInt("count"),
+            limit = payload.optInt("limit", 8),
+        )
+    }
+
+    private fun fetchPublicProfileImages(userId: String, session: SessionInfo?, page: Int): PagedResult<ImageSummary> {
+        val payload = api.fetchImagesPage(
+            params = mapOf(
+                "rating" to "all",
+                "user" to userId,
+                "limit" to "8",
+                "sort" to "date",
+                "page" to page.toString(),
+            ),
+            bearerToken = session?.refreshToken,
+        )
+        return PagedResult(
+            items = parseImageList(payload.optJSONArray("results") ?: JSONArray()),
             page = payload.optInt("page", page),
             count = payload.optInt("count"),
             limit = payload.optInt("limit", 8),
@@ -232,6 +327,31 @@ class IwaraRepository(
         }.getOrElse {
             fetchPublicProfileVideos(userId, session, page)
         }
+
+    private fun fetchOwnProfileImages(userId: String, session: SessionInfo, page: Int): PagedResult<ImageSummary> =
+        runCatching {
+            withAccessTokenResult(session) { accessToken ->
+                val payload = api.fetchUserContent(
+                    userId = userId,
+                    type = "images",
+                    params = mapOf(
+                        "limit" to "8",
+                        "sort" to "date",
+                        "page" to page.toString(),
+                    ),
+                    bearerToken = accessToken,
+                )
+                PagedResult(
+                    items = parseImageList(payload.optJSONArray("results") ?: JSONArray()),
+                    page = payload.optInt("page", page),
+                    count = payload.optInt("count"),
+                    limit = payload.optInt("limit", 8),
+                )
+            }
+        }.getOrElse {
+            fetchPublicProfileImages(userId, session, page)
+        }
+
     fun fetchPlaylistDetail(id: String, session: SessionInfo?, page: Int = 0): PlaylistDetail {
         val payload = api.fetchPlaylist(
             id = id,
@@ -279,6 +399,7 @@ class IwaraRepository(
             api.removeFromPlaylist(playlistId, videoId, accessToken)
         }
     }
+
     fun deletePlaylist(playlistId: String, session: SessionInfo) {
         withAccessTokenResult(session) { accessToken ->
             api.deletePlaylist(playlistId, accessToken)
@@ -386,7 +507,7 @@ class IwaraRepository(
     private fun parseImageList(payload: JSONArray): List<ImageSummary> = buildList {
         for (index in 0 until payload.length()) {
             val json = payload.getJSONObject(index)
-            val thumbnail = json.optJSONObject("thumbnail")
+            val thumbnail = json.optJSONObject("thumbnail") ?: json.optJSONObject("file")
             add(
                 ImageSummary(
                     id = json.optString("id"),
@@ -395,10 +516,33 @@ class IwaraRepository(
                     authorUsername = json.optJSONObject("user")?.optString("username").orEmpty(),
                     views = json.optInt("numViews"),
                     likes = json.optInt("numLikes"),
-                    thumbnailUrl = buildImageThumbnailUrl(thumbnail),
+                    thumbnailUrl = buildImageThumbnailUrl(thumbnail) ?: buildImageOriginalAssetUrl(thumbnail),
                 ),
             )
         }
+    }
+
+    private fun parseImageAssets(payload: JSONObject): List<ImageAsset> {
+        val files = payload.optJSONArray("files")
+        if (files != null && files.length() > 0) {
+            return buildList {
+                for (index in 0 until files.length()) {
+                    parseImageAsset(files.getJSONObject(index), index)?.let(::add)
+                }
+            }
+        }
+        return listOfNotNull(parseImageAsset(payload.optJSONObject("file"), 0))
+    }
+
+    private fun parseImageAsset(json: JSONObject?, index: Int): ImageAsset? {
+        if (json == null) return null
+        val source = json.optJSONObject("file") ?: json
+        val originalUrl = buildImageOriginalAssetUrl(source) ?: return null
+        return ImageAsset(
+            id = source.optStringOrNull("id") ?: json.optStringOrNull("id") ?: "asset-$index",
+            name = source.optStringOrNull("name") ?: json.optStringOrNull("name") ?: "page-${index + 1}.jpg",
+            originalUrl = originalUrl,
+        )
     }
 
     private fun parsePlaylistList(payload: JSONArray): List<PlaylistSummary> = buildList {
@@ -527,6 +671,12 @@ class IwaraRepository(
         return "https://i.iwara.tv/image/original/$id/$name"
     }
 
+    private fun buildImageOriginalAssetUrl(file: JSONObject?): String? {
+        val id = file?.optStringOrNull("id") ?: return null
+        val name = file.optStringOrNull("name") ?: return null
+        return "https://i.iwara.tv/image/original/$id/$name"
+    }
+
     private fun normalizeUrl(url: String): String =
         if (url.startsWith("//")) {
             "https:$url"
@@ -544,11 +694,3 @@ class IwaraRepository(
         private const val DEFAULT_BACKGROUND_URL = "https://www.iwara.tv/images/default-background.jpg"
     }
 }
-
-
-
-
-
-
-
-

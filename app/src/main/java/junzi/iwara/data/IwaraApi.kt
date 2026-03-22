@@ -2,7 +2,9 @@
 
 import android.net.Uri
 import junzi.iwara.BrowserBridge
+import junzi.iwara.model.IwaraSite
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
@@ -12,6 +14,20 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class IwaraApi {
+    private val requestSite = ThreadLocal<IwaraSite>()
+
+    fun <T> withSite(site: IwaraSite, block: IwaraApi.() -> T): T {
+        val previous = currentSite()
+        requestSite.set(site)
+        return try {
+            this.block()
+        } finally {
+            requestSite.set(previous)
+        }
+    }
+
+    private fun currentSite(): IwaraSite = requestSite.get() ?: IwaraSite.Tv
+
     fun login(email: String, password: String): String {
         val response = requestJsonObject(
             method = "POST",
@@ -63,17 +79,21 @@ class IwaraApi {
     ): JSONArray =
         fetchVideosPage(params, bearerToken).optJSONArray("results") ?: JSONArray()
 
-    fun fetchImages(
+    fun fetchImagesPage(
         params: Map<String, String>,
         bearerToken: String? = null,
-    ): JSONArray {
-        val response = requestJsonObject(
+    ): JSONObject =
+        requestJsonObject(
             method = "GET",
             url = apiUrl(buildPath("/images", params)),
             bearerToken = bearerToken,
         )
-        return response.optJSONArray("results") ?: JSONArray()
-    }
+
+    fun fetchImages(
+        params: Map<String, String>,
+        bearerToken: String? = null,
+    ): JSONArray =
+        fetchImagesPage(params, bearerToken).optJSONArray("results") ?: JSONArray()
 
     fun fetchPlaylists(
         params: Map<String, String>,
@@ -124,6 +144,13 @@ class IwaraApi {
         requestJsonObject(
             method = "GET",
             url = apiUrl("/video/$id"),
+            bearerToken = bearerToken,
+        )
+
+    fun fetchImage(id: String, bearerToken: String? = null): JSONObject =
+        requestJsonObject(
+            method = "GET",
+            url = apiUrl("/image/$id"),
             bearerToken = bearerToken,
         )
 
@@ -209,6 +236,7 @@ class IwaraApi {
             bearerToken = bearerToken,
         )
     }
+
     fun deletePlaylist(
         playlistId: String,
         bearerToken: String,
@@ -251,9 +279,8 @@ class IwaraApi {
         body: String? = null,
         bearerToken: String? = null,
         extraHeaders: Map<String, String> = emptyMap(),
-    ): JSONObject {
-        val response = request(method, url, body, bearerToken, extraHeaders)
-        return JSONObject(response.body)
+    ): JSONObject = requestAndDecode(method, url, body, bearerToken, extraHeaders) { responseBody ->
+        JSONObject(responseBody)
     }
 
     private fun requestJsonArray(
@@ -262,9 +289,36 @@ class IwaraApi {
         body: String? = null,
         bearerToken: String? = null,
         extraHeaders: Map<String, String> = emptyMap(),
-    ): JSONArray {
-        val response = request(method, url, body, bearerToken, extraHeaders)
-        return JSONArray(response.body)
+    ): JSONArray = requestAndDecode(method, url, body, bearerToken, extraHeaders) { responseBody ->
+        JSONArray(responseBody)
+    }
+
+    private fun <T> requestAndDecode(
+        method: String,
+        url: String,
+        body: String? = null,
+        bearerToken: String? = null,
+        extraHeaders: Map<String, String> = emptyMap(),
+        decoder: (String) -> T,
+    ): T {
+        val attempts = retryAttemptsFor(method)
+        var lastError: Throwable? = null
+        repeat(attempts) { attempt ->
+            try {
+                val response = requestOnce(method, url, body, bearerToken, extraHeaders)
+                if (response.body.isBlank()) {
+                    throw IllegalStateException("$url :: Empty response body")
+                }
+                return decoder(response.body)
+            } catch (error: Throwable) {
+                lastError = error
+                if (!shouldRetryRequest(method, error) || attempt == attempts - 1) {
+                    throw error
+                }
+                Thread.sleep(retryDelayMillis(attempt))
+            }
+        }
+        throw IllegalStateException(lastError?.message ?: "Request failed", lastError)
     }
 
     private fun request(
@@ -274,19 +328,50 @@ class IwaraApi {
         bearerToken: String? = null,
         extraHeaders: Map<String, String> = emptyMap(),
     ): ApiResponse {
+        val attempts = retryAttemptsFor(method)
+        var lastError: Throwable? = null
+        repeat(attempts) { attempt ->
+            try {
+                return requestOnce(method, url, body, bearerToken, extraHeaders)
+            } catch (error: Throwable) {
+                lastError = error
+                if (!shouldRetryRequest(method, error) || attempt == attempts - 1) {
+                    throw error
+                }
+                Thread.sleep(retryDelayMillis(attempt))
+            }
+        }
+        throw IllegalStateException(lastError?.message ?: "Request failed", lastError)
+    }
+
+    private fun requestOnce(
+        method: String,
+        url: String,
+        body: String? = null,
+        bearerToken: String? = null,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): ApiResponse {
+        val site = currentSite()
+        val siteHeader = Uri.parse(site.homeUrl).host ?: "www.iwara.tv"
         val headers = linkedMapOf(
             "Accept" to "application/json",
             "Content-Type" to "application/json",
+            "Origin" to site.origin,
+            "Referer" to site.homeUrl,
+            "X-Site" to siteHeader,
             "User-Agent" to USER_AGENT,
         )
         bearerToken?.let { headers["Authorization"] = "Bearer $it" }
         extraHeaders.forEach { (key, value) -> headers[key] = value }
 
         if (BrowserBridge.isAttached()) {
-            val bridgeResponse = runBlocking { BrowserBridge.fetch(method, url, headers, body) }
+            val bridgeResponse = runBlocking { BrowserBridge.fetch(site, method, url, headers, body) }
             if (bridgeResponse.statusCode !in 200..299) {
                 val message = parseErrorMessage(bridgeResponse.body)
                 throw IwaraApiException("$url :: $message", bridgeResponse.statusCode, bridgeResponse.body)
+            }
+            if (bridgeResponse.body.isBlank() && retryAttemptsFor(method) > 1) {
+                throw IllegalStateException("$url :: Empty response body")
             }
             return ApiResponse(bridgeResponse.statusCode, bridgeResponse.body)
         }
@@ -319,9 +404,41 @@ class IwaraApi {
             val message = parseErrorMessage(responseBody)
             throw IwaraApiException("$url :: $message", statusCode, responseBody)
         }
+        if (responseBody.isBlank() && retryAttemptsFor(method) > 1) {
+            throw IllegalStateException("$url :: Empty response body")
+        }
 
         return ApiResponse(statusCode, responseBody)
     }
+
+    private fun retryAttemptsFor(method: String): Int = if (method.equals("GET", ignoreCase = true)) MAX_READ_RETRIES else 1
+    private fun shouldRetryRequest(method: String, error: Throwable): Boolean {
+        if (!method.equals("GET", ignoreCase = true)) return false
+        return when (error) {
+            is IwaraApiException -> {
+                shouldRetryStatus(error.statusCode) ||
+                    shouldRetryFetchFailure(error.message) ||
+                    shouldRetryFetchFailure(error.body)
+            }
+            is IOException -> true
+            is IllegalStateException -> shouldRetryFetchFailure(error.message)
+            else -> shouldRetryFetchFailure(error.message)
+        }
+    }
+
+    private fun shouldRetryStatus(statusCode: Int): Boolean =
+        statusCode <= 0 || statusCode == 408 || statusCode == 425 || statusCode == 429 || statusCode in 500..599
+
+    private fun shouldRetryFetchFailure(message: String?): Boolean {
+        val normalized = message?.lowercase().orEmpty()
+        return normalized.contains("failed to fetch") ||
+            normalized.contains("typeerror") ||
+            normalized.contains("networkerror") ||
+            normalized.contains("network request failed") ||
+            normalized.contains("empty response body")
+    }
+
+    private fun retryDelayMillis(attempt: Int): Long = (350L * (attempt + 1)).coerceAtMost(1_500L)
 
     private fun parseErrorMessage(body: String): String {
         if (body.isBlank()) {
@@ -332,7 +449,6 @@ class IwaraApi {
             ?.takeIf { it.isNotBlank() }
             ?: body
     }
-
     private fun buildPath(path: String, params: Map<String, String>): String {
         if (params.isEmpty()) return path
         return path + "?" + params.entries.joinToString("&") { (key, value) ->
@@ -369,6 +485,7 @@ class IwaraApi {
     )
 
     companion object {
+        private const val MAX_READ_RETRIES = 5
         private const val API_BASE = "https://apiq.iwara.tv"
         private const val USER_AGENT =
             "Mozilla/5.0 (Android) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"

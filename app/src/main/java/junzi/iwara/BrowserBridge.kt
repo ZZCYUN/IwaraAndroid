@@ -1,4 +1,4 @@
-﻿package junzi.iwara
+package junzi.iwara
 
 import android.os.Handler
 import android.os.Looper
@@ -6,6 +6,7 @@ import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import junzi.iwara.model.IwaraSite
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
@@ -13,7 +14,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object BrowserBridge {
-    private const val PREWARM_URL = "https://www.iwara.tv/"
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pending = ConcurrentHashMap<String, CompletableDeferred<BrowserResponse>>()
@@ -24,6 +24,8 @@ object BrowserBridge {
     private var activeLoad: CompletableDeferred<Unit>? = null
     @Volatile
     private var bridgeReady = false
+    @Volatile
+    private var activeSite = IwaraSite.Tv
 
     fun isAttached(): Boolean = webView != null
 
@@ -43,20 +45,22 @@ object BrowserBridge {
                 probePageReady(view)
             }
         }
-        beginLoad(PREWARM_URL)
+        beginLoad(IwaraSite.Tv.homeUrl, IwaraSite.Tv)
     }
 
     suspend fun fetch(
+        site: IwaraSite,
         method: String,
         url: String,
         headers: Map<String, String>,
         body: String?,
     ): BrowserResponse {
-        ensureReady()
-        return executeFetch(method, url, headers, body, allowChallengeRetry = true)
+        ensureReady(site)
+        return executeFetch(site, method, url, headers, body, allowChallengeRetry = true)
     }
 
     private suspend fun executeFetch(
+        site: IwaraSite,
         method: String,
         url: String,
         headers: Map<String, String>,
@@ -91,28 +95,30 @@ object BrowserBridge {
         mainHandler.post { webView?.evaluateJavascript(script, null) }
         val response = deferred.await()
         if (allowChallengeRetry && response.isCloudflareChallenge()) {
-            resolveChallenge(url)
-            return executeFetch(method, url, headers, body, allowChallengeRetry = false)
+            resolveChallenge(site, url)
+            return executeFetch(site, method, url, headers, body, allowChallengeRetry = false)
         }
         return response
     }
 
-    private suspend fun ensureReady() {
-        if (bridgeReady) return
+    private suspend fun ensureReady(site: IwaraSite) {
+        if (bridgeReady && activeSite == site) return
+        beginLoad(site.homeUrl, site)
         activeLoad?.await()
     }
 
-    private suspend fun resolveChallenge(url: String) {
-        beginLoad(url)
+    private suspend fun resolveChallenge(site: IwaraSite, url: String) {
+        beginLoad(url, site)
         activeLoad?.await()
-        beginLoad(PREWARM_URL)
+        beginLoad(site.homeUrl, site)
         activeLoad?.await()
     }
 
-    private fun beginLoad(url: String) {
+    private fun beginLoad(url: String, site: IwaraSite) {
         val deferred = CompletableDeferred<Unit>()
         activeLoad = deferred
         bridgeReady = false
+        activeSite = site
         mainHandler.post {
             webView?.loadUrl(url)
         }

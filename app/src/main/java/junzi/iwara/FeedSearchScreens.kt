@@ -1,4 +1,4 @@
-﻿package junzi.iwara
+package junzi.iwara
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
@@ -17,7 +17,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,7 +30,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import junzi.iwara.app.IwaraAppController
 import junzi.iwara.model.AppUiState
+import junzi.iwara.model.ContentType
 import junzi.iwara.model.FeedSort
 import junzi.iwara.model.SearchType
 
@@ -54,9 +53,9 @@ fun FeedScreen(
 ) {
     var playlistTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     val feedListState = rememberLazyListState()
-    var lastCompletedFeedPage by rememberSaveable { mutableStateOf<Int?>(null) }
+    var lastCompletedFeedPage by rememberSaveable(state.feed.contentType) { mutableStateOf<Int?>(null) }
 
-    LaunchedEffect(state.feed.loading, state.feed.page, state.feed.videos.size) {
+    LaunchedEffect(state.feed.loading, state.feed.page, state.feed.contentType) {
         if (!state.feed.loading) {
             val previousPage = lastCompletedFeedPage
             if (previousPage != null && previousPage != state.feed.page) {
@@ -71,7 +70,15 @@ fun FeedScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(stringResource(R.string.app_name_short))
+                        Text(
+                            stringResource(
+                                if (state.route == junzi.iwara.model.AppRoute.Ai || state.feed.site == junzi.iwara.model.IwaraSite.Ai) {
+                                    R.string.title_ai
+                                } else {
+                                    R.string.app_name_short
+                                },
+                            ),
+                        )
                         Text(state.session?.user?.username.orEmpty())
                     }
                 },
@@ -82,13 +89,19 @@ fun FeedScreen(
                     IconButton(onClick = controller::openSearch) {
                         Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.action_search))
                     }
-                    IconButton(onClick = controller::openOwnProfile) {
-                        Icon(Icons.Filled.AccountCircle, contentDescription = stringResource(R.string.action_profile))
-                    }
                     IconButton(onClick = controller::logout) {
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = stringResource(R.string.action_logout))
                     }
                 },
+            )
+        },
+        bottomBar = {
+            MainBottomBar(
+                route = state.route,
+                isOwnProfile = false,
+                onOpenHome = controller::openFeed,
+                onOpenAi = controller::openAi,
+                onOpenMy = { controller.openOwnProfile() },
             )
         },
     ) { paddingValues ->
@@ -97,6 +110,13 @@ fun FeedScreen(
                 .fillMaxSize()
                 .padding(paddingValues),
         ) {
+            ContentTypeToggleBar(
+                selectedType = state.feed.contentType,
+                onSelected = controller::openFeedContentType,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -106,7 +126,14 @@ fun FeedScreen(
                 FeedSort.entries.forEach { sort ->
                     FilterChip(
                         selected = state.feed.sort == sort,
-                        onClick = { controller.loadFeed(sort = sort, tag = state.feed.selectedTag, page = 0) },
+                        onClick = {
+                            controller.loadFeed(
+                                sort = sort,
+                                tag = state.feed.selectedTag,
+                                page = 0,
+                                contentType = state.feed.contentType,
+                            )
+                        },
                         label = { Text(stringResource(sort.labelRes)) },
                     )
                 }
@@ -120,25 +147,30 @@ fun FeedScreen(
             ) {
                 FilterChip(
                     selected = state.feed.selectedTag == null,
-                    onClick = { controller.loadFeed(sort = state.feed.sort, tag = null, page = 0) },
+                    onClick = {
+                        controller.loadFeed(
+                            sort = state.feed.sort,
+                            tag = null,
+                            page = 0,
+                            contentType = state.feed.contentType,
+                        )
+                    },
                     label = { Text(stringResource(R.string.filter_all)) },
                 )
                 state.feed.categories.forEach { category ->
                     FilterChip(
                         selected = state.feed.selectedTag == category,
-                        onClick = { controller.loadFeed(sort = state.feed.sort, tag = category, page = 0) },
+                        onClick = {
+                            controller.loadFeed(
+                                sort = state.feed.sort,
+                                tag = category,
+                                page = 0,
+                                contentType = state.feed.contentType,
+                            )
+                        },
                         label = { Text(category) },
                     )
                 }
-                state.feed.selectedTag
-                    ?.takeIf { !state.feed.categories.contains(it) }
-                    ?.let { tag ->
-                        FilterChip(
-                            selected = true,
-                            onClick = { controller.loadFeed(sort = state.feed.sort, tag = tag, page = 0) },
-                            label = { Text(tag) },
-                        )
-                    }
             }
             Spacer(modifier = Modifier.height(8.dp))
             if (state.feed.loading) {
@@ -156,20 +188,41 @@ fun FeedScreen(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(state.feed.videos, key = { it.id }) { video ->
-                    VideoRow(
-                        video = video,
-                        onOpen = { controller.openVideo(video.id) },
-                        onOpenProfile = { controller.openProfile(video.authorUsername) },
-                        onAddToPlaylist = { playlistTargetId = video.id },
-                    )
+                when (state.feed.contentType) {
+                    ContentType.Videos -> {
+                        items(state.feed.videos, key = { it.id }) { video ->
+                            VideoRow(
+                                video = video,
+                                onOpen = { controller.openVideo(video.id) },
+                                onOpenProfile = { controller.openProfile(video.authorUsername) },
+                                onAddToPlaylist = { playlistTargetId = video.id },
+                            )
+                        }
+                    }
+
+                    ContentType.Images -> {
+                        items(state.feed.images, key = { it.id }) { image ->
+                            ImageRow(
+                                image = image,
+                                onOpen = { controller.openImage(image.id) },
+                                onOpenProfile = { controller.openProfile(image.authorUsername) },
+                            )
+                        }
+                    }
                 }
                 item {
                     PaginationBar(
                         currentPage = state.feed.page,
                         totalCount = state.feed.count,
                         pageSize = state.feed.limit,
-                        onPageSelected = { page -> controller.loadFeed(state.feed.sort, state.feed.selectedTag, page) },
+                        onPageSelected = { page ->
+                            controller.loadFeed(
+                                state.feed.sort,
+                                state.feed.selectedTag,
+                                page,
+                                state.feed.contentType,
+                            )
+                        },
                     )
                 }
             }
@@ -186,7 +239,14 @@ fun SearchScreen(
     state: AppUiState,
     controller: IwaraAppController,
 ) {
-    BackHandler { controller.loadFeed(state.feed.sort, state.feed.selectedTag, state.feed.page) }
+    BackHandler {
+        controller.loadFeed(
+            sort = state.feed.sort,
+            tag = state.feed.selectedTag,
+            page = state.feed.page,
+            contentType = state.feed.contentType,
+        )
+    }
     var query by rememberSaveable(state.search.query) { mutableStateOf(state.search.query) }
     var searchPlaylistTargetId by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -195,7 +255,16 @@ fun SearchScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.title_search)) },
                 navigationIcon = {
-                    IconButton(onClick = { controller.loadFeed(state.feed.sort, state.feed.selectedTag, state.feed.page) }) {
+                    IconButton(
+                        onClick = {
+                            controller.loadFeed(
+                                sort = state.feed.sort,
+                                tag = state.feed.selectedTag,
+                                page = state.feed.page,
+                                contentType = state.feed.contentType,
+                            )
+                        },
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
                     }
                 },
@@ -244,43 +313,70 @@ fun SearchScreen(
                     modifier = Modifier.padding(16.dp),
                 )
             }
-            if (state.search.type == SearchType.Videos) {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(state.search.videoResults, key = { it.id }) { video ->
-                        VideoRow(
-                            video = video,
-                            onOpen = { controller.openVideo(video.id) },
-                            onOpenProfile = { controller.openProfile(video.authorUsername) },
-                            onAddToPlaylist = { searchPlaylistTargetId = video.id },
-                        )
-                    }
-                    item {
-                        PaginationBar(
-                            currentPage = state.search.page,
-                            totalCount = state.search.count,
-                            pageSize = state.search.limit,
-                            onPageSelected = { page -> controller.search(state.search.query, state.search.type, page) },
-                        )
+            when (state.search.type) {
+                SearchType.Videos -> {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(state.search.videoResults, key = { it.id }) { video ->
+                            VideoRow(
+                                video = video,
+                                onOpen = { controller.openVideo(video.id) },
+                                onOpenProfile = { controller.openProfile(video.authorUsername) },
+                                onAddToPlaylist = { searchPlaylistTargetId = video.id },
+                            )
+                        }
+                        item {
+                            PaginationBar(
+                                currentPage = state.search.page,
+                                totalCount = state.search.count,
+                                pageSize = state.search.limit,
+                                onPageSelected = { page -> controller.search(state.search.query, state.search.type, page) },
+                            )
+                        }
                     }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(state.search.userResults, key = { it.id }) { user ->
-                        UserRow(user = user, onOpen = { controller.openProfile(user.username) })
+
+                SearchType.Images -> {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(state.search.imageResults, key = { it.id }) { image ->
+                            ImageRow(
+                                image = image,
+                                onOpen = { controller.openImage(image.id) },
+                                onOpenProfile = { controller.openProfile(image.authorUsername) },
+                            )
+                        }
+                        item {
+                            PaginationBar(
+                                currentPage = state.search.page,
+                                totalCount = state.search.count,
+                                pageSize = state.search.limit,
+                                onPageSelected = { page -> controller.search(state.search.query, state.search.type, page) },
+                            )
+                        }
                     }
-                    item {
-                        PaginationBar(
-                            currentPage = state.search.page,
-                            totalCount = state.search.count,
-                            pageSize = state.search.limit,
-                            onPageSelected = { page -> controller.search(state.search.query, state.search.type, page) },
-                        )
+                }
+
+                SearchType.Users -> {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(state.search.userResults, key = { it.id }) { user ->
+                            UserRow(user = user, onOpen = { controller.openProfile(user.username) })
+                        }
+                        item {
+                            PaginationBar(
+                                currentPage = state.search.page,
+                                totalCount = state.search.count,
+                                pageSize = state.search.limit,
+                                onPageSelected = { page -> controller.search(state.search.query, state.search.type, page) },
+                            )
+                        }
                     }
                 }
             }
@@ -290,7 +386,6 @@ fun SearchScreen(
         }
     }
 }
-
 
 
 

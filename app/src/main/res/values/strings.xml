@@ -27,7 +27,7 @@
     <string name="action_delete_download">删除下载</string>
     <string name="action_delete_playlist">删除播放列表</string>
     <string name="action_download">下载</string>
-    <string name="action_download_list">下载列表</string>
+    <string name="action_download_list">下载</string>
     <string name="action_refresh_downloads">刷新下载列表</string>
     <string name="action_first_page">首页</string>
     <string name="action_previous_page">上一页</string>
@@ -40,6 +40,7 @@
     <string name="title_search">搜索</string>
     <string name="label_search_query">搜索关键词</string>
     <string name="search_type_videos">视频</string>
+    <string name="search_type_images">图片</string>
     <string name="search_type_users">用户</string>
     <string name="section_followers">粉丝</string>
     <string name="section_following">关注</string>
@@ -74,6 +75,7 @@
     <string name="error_search_failed">搜索失败</string>
     <string name="error_load_profile">加载主页失败</string>
     <string name="error_load_video">加载播放页失败</string>
+    <string name="error_load_image">加载图片失败</string>
     <string name="error_load_comments">加载评论失败</string>
     <string name="error_post_comment">发表评论失败</string>
     <string name="title_downloads">下载列表</string>
@@ -89,6 +91,7 @@
     <string name="label_download_status_unknown">状态未知</string>
     <string name="label_page_indicator">第 %1$d / %2$d 页</string>
     <string name="label_page_total_count">共 %1$d 条</string>
+    <string name="label_image_page_indicator">第 %1$d / %2$d 张</string>
     <string name="label_jump_to_page">页码</string>
     <string name="message_delete_playlist_confirm">确定删除播放列表“%1$s”？</string>
     <string name="message_download_started">已开始下载 %1$s</string>
@@ -97,6 +100,16 @@
     <string name="message_download_not_ready">下载尚未完成</string>
     <string name="action_remove_from_playlist">移出播放列表</string>
     <string name="message_loading_profile_videos">正在加载该页视频…</string>
+    <string name="message_loading_profile_images">正在加载该页图片…</string>
+    <string name="title_ai">Iwara AI</string>
+    <string name="action_refresh">刷新</string>
+    <string name="bottom_home">主页</string>
+    <string name="bottom_ai">AI</string>
+    <string name="bottom_my">我的</string>
 </resources>
+
+
+
+
 
 

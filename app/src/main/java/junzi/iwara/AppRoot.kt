@@ -42,6 +42,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import junzi.iwara.app.IwaraAppController
 import junzi.iwara.model.AppRoute
 import junzi.iwara.model.AppUiState
+import junzi.iwara.model.IwaraSite
 
 private const val REGISTER_URL = "https://www.iwara.tv/register"
 
@@ -59,10 +60,13 @@ fun IwaraApp(controller: IwaraAppController) {
             when {
                 state.bootstrapping -> SplashScreen()
                 state.route == AppRoute.Login -> LoginScreen(state, controller)
-                state.route == AppRoute.Feed -> FeedScreen(state, controller)
-                state.route == AppRoute.Search -> SearchScreen(state, controller)
-                state.route == AppRoute.Profile -> ProfileScreen(state, controller)
+                state.route == AppRoute.Feed -> TvHomeScreen(state, controller)
+                state.route == AppRoute.Ai -> AiHomeScreen(state, controller)
+                state.route == AppRoute.Search && state.activeSearchSite == IwaraSite.Ai -> AiSearchScreen(state, controller)
+                state.route == AppRoute.Search -> TvSearchScreen(state, controller)
+                state.route == AppRoute.Profile -> ProfileRouteScreen(state, controller)
                 state.route == AppRoute.Player -> PlayerScreen(state, controller)
+                state.route == AppRoute.ImageViewer -> ReaderImageViewerScreen(state, controller)
                 state.route == AppRoute.Playlist -> PlaylistScreen(state, controller)
                 state.route == AppRoute.Downloads -> DownloadsScreen(state, controller)
             }
@@ -183,4 +187,8 @@ private fun LoginScreen(
         Spacer(modifier = Modifier.weight(1f))
     }
 }
+
+
+
+
 
